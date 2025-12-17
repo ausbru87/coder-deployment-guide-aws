@@ -39,7 +39,7 @@ This document provides architectural diagrams for the Coder platform deployment 
 │  │   │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐           │ │ │
 │  │   │  │ coder-system  │  │  coder-prov   │  │   coder-ws    │           │ │ │
 │  │   │  │   (coderd)    │  │ (provisioners)│  │ (workspaces)  │           │ │ │
-│  │   │  │    (TBD)      │  │    (TBD)      │  │     (TBD)      │          │ │ │
+│  │   │  │  m7i.large x2  │  │ c7i.2xlarge x2 │  │ m7i.12xlarge x20 │          │ │ │
 │  │   │  └───────────────┘  └───────────────┘  └───────────────┘           │ │ │
 │  │   │                                                                      │ │ │
 │  │   └─────────────────────────────────────────────────────────────────────┘ │ │
@@ -69,9 +69,9 @@ flowchart TB
             end
             
             subgraph EKS["EKS Cluster"]
-                system["coder-system<br/>(TBD)"]
-                prov["coder-prov<br/>(TBD)"]
-                ws["coder-ws<br/>(TBD)"]
+                system["coder-system<br/>m7i.large x2"]
+                prov["coder-prov<br/>c7i.2xlarge x2"]
+                ws["coder-ws<br/>m7i.12xlarge x20"]
             end
             
             RDS["RDS PostgreSQL<br/>Writer (Multi-AZ)"]
@@ -96,7 +96,7 @@ flowchart TB
 |-----------|-------------|---------|
 | Networking | VPC, 2 AZs, 1 NAT GW | Network isolation |
 | Compute | EKS with 3 node groups | Kubernetes workloads |
-| Database | RDS PostgreSQL Multi-AZ | Coder metadata |
+| Database | RDS PostgreSQL Multi-AZ (db.m7i.large) | Coder metadata |
 | Load Balancing | Network Load Balancer | TLS termination, traffic distribution |
 | DNS | Route 53 | Domain management |
 | Certificates | ACM | TLS with auto-renewal |
@@ -274,8 +274,8 @@ flowchart TB
 │  ┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐      │
 │  │   coder-system      │ │    coder-prov       │ │     coder-ws        │      │
 │  │                     │ │                     │ │                     │      │
-│  │  (TBD)              │ │  (TBD)              │ │  (TBD)              │      │
-│  │  Min: 2 / Max: 2    │ │  Min: 0 / Max: 10   │ │  Min: 2 / Max: 50   │      │
+│  │  m7i.large           │ │  c7i.2xlarge         │ │  m7i.12xlarge         │      │
+│  │  Min: 2 / Max: 2    │ │  Min: 0 / Max: 2    │ │  Min: 2 / Max: 20   │      │
 │  │  Scaling: Static    │ │  Scaling: Time-based│ │  Scaling: Time+CA   │      │
 │  │                     │ │  (business hours)   │ │  (business hours)   │      │
 │  │  Taint: system      │ │  Taint: provisioner │ │  Taint: workspace   │      │
@@ -295,9 +295,9 @@ flowchart TB
         CP["Control Plane (AWS Managed)<br/>Multi-AZ | Encrypted | OIDC"]
         
         subgraph Nodes["Node Groups"]
-            system["coder-system<br/>(TBD)"]
-            prov["coder-prov<br/>(TBD)"]
-            ws["coder-ws<br/>(TBD)"]
+            system["coder-system<br/>m7i.large<br/>2 (static)"]
+            prov["coder-prov<br/>c7i.2xlarge<br/>0-2 (time-based)"]
+            ws["coder-ws<br/>m7i.12xlarge<br/>2-20 (autoscaling)"]
         end
         
         subgraph NS["Namespaces"]
@@ -318,9 +318,9 @@ flowchart TB
 
 | Node Group | Instance | Min | Max | Scaling |
 |------------|----------|-----|-----|---------|
-| coder-system | TBD | TBD | TBD | Static |
-| coder-prov | TBD | TBD | TBD | Time-based |
-| coder-ws | TBD | TBD | TBD | Time-based + Cluster Autoscaler |
+| coder-system | m7i.large (2 vCPU, 8 GB) | 2 | 2 | Static |
+| coder-prov | c7i.2xlarge (8 vCPU, 32 GB) | 0 | 2 | Time-based |
+| coder-ws | m7i.12xlarge (48 vCPU, 192 GB) | 2 | 20 | Cluster Autoscaler |
 
 ### Scaling Schedule
 
@@ -481,7 +481,7 @@ Future enhancements from MVP to full architecture:
 |------|------|-----|---------|--------------|
 | S | 2 | 4 GB | 20 GB | 25% |
 | M | 4 | 8 GB | 50 GB | 60% |
-| L | 8 | 16 GB | 100 GB | 15% |
+| L | 16 | 32 GB | 100 GB | 15% |
 
 These estimates drive node pool sizing for 500 peak concurrent workspaces.
 

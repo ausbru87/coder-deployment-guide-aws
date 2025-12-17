@@ -122,7 +122,7 @@ This guide uses the following t-shirt sizes and distribution:
 |------|------|-----|--------------|
 | S | 2 | 4 GB | 25% |
 | M | 4 | 8 GB | 60% |
-| L | 8 | 16 GB | 15% |
+| L | 16 | 32 GB | 15% |
 
 These estimates drive node pool sizing in the infrastructure setup.
 
