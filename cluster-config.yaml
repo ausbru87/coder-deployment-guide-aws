@@ -1,0 +1,11 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: coder-cluster
+  region: us-west-2
+vpc:
+  cidr: 10.0.0.0/16
+autoModeConfig:
+  enabled: false
+iam:
+  withOIDC: true

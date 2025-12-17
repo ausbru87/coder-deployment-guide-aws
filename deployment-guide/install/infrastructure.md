@@ -24,12 +24,35 @@ Create a VPC with public and private subnets across multiple availability zones:
 export AWS_REGION=us-west-2
 export CLUSTER_NAME=coder-cluster
 
-# Create VPC with eksctl (creates subnets, NAT, IGW)
-eksctl create cluster \
-  --name $CLUSTER_NAME \
-  --region $AWS_REGION \
-  --without-nodegroup \
-  --vpc-cidr 10.0.0.0/16
+# Create VPC and EKS cluster (creates subnets, NAT, IGW)
+cat <<EOF > cluster-config.yaml
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: ${CLUSTER_NAME}
+  region: ${AWS_REGION}
+vpc:
+  cidr: 10.0.0.0/16
+autoModeConfig:
+  enabled: false
+iam:
+  withOIDC: true
+addons:
+- name: vpc-cni
+  version: latest
+  resolveConflicts: overwrite
+  useDefaultPodIdentityAssociations: true
+- name: kube-proxy
+  version: latest
+  resolveConflicts: overwrite
+- name: coredns
+  version: latest
+  resolveConflicts: overwrite
+- name: eks-pod-identity-agent
+  version: latest
+EOF
+
+eksctl create cluster -f cluster-config.yaml --without-nodegroup
 ```
 
 This creates:
@@ -42,7 +65,14 @@ This creates:
 Verify:
 
 ```bash
+# Verify VPC created
 aws ec2 describe-vpcs --filters "Name=tag:eksctl.cluster.k8s.io/v1alpha1/cluster-name,Values=$CLUSTER_NAME"
+
+# Verify pod identity agent is running
+kubectl get pods -n kube-system -l app.kubernetes.io/name=eks-pod-identity-agent
+
+# Verify vpc-cni pods are healthy
+kubectl get pods -n kube-system -l k8s-app=aws-node
 ```
 
 ## Security Groups
@@ -75,29 +105,60 @@ aws ec2 authorize-security-group-ingress \
 echo "RDS Security Group: $RDS_SG"
 ```
 
-## EKS Node Group
+## EKS Node Groups
 
-Add a managed node group sized for your capacity plan:
+Create three node groups per the [architecture](../architecture/diagrams.md):
+
+### coder-system (coderd)
 
 ```bash
 eksctl create nodegroup \
   --cluster $CLUSTER_NAME \
   --region $AWS_REGION \
-  --name coder-nodes \
-  --node-type t3.large \
-  --nodes 3 \
+  --name coder-system \
+  --node-type m7i.large \
+  --nodes 2 \
   --nodes-min 2 \
-  --nodes-max 10 \
-  --node-private-networking
+  --nodes-max 2 \
+  --node-private-networking \
+  --node-labels "coder.com/node-type=system"
 ```
 
-Adjust `--node-type`, `--nodes`, and `--nodes-max` based on your capacity planning.
+### coder-prov (provisioners)
 
-Verify:
+```bash
+eksctl create nodegroup \
+  --cluster $CLUSTER_NAME \
+  --region $AWS_REGION \
+  --name coder-prov \
+  --node-type c7i.2xlarge \
+  --nodes 2 \
+  --nodes-min 0 \
+  --nodes-max 2 \
+  --node-private-networking \
+  --node-labels "coder.com/node-type=provisioner"
+```
+
+### coder-ws (workspaces)
+
+```bash
+eksctl create nodegroup \
+  --cluster $CLUSTER_NAME \
+  --region $AWS_REGION \
+  --name coder-ws \
+  --node-type m7i.12xlarge \
+  --nodes 2 \
+  --nodes-min 2 \
+  --nodes-max 20 \
+  --node-private-networking \
+  --node-labels "coder.com/node-type=workspace"
+```
+
+### Verify
 
 ```bash
 aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
-kubectl get nodes
+kubectl get nodes -L coder.com/node-type
 ```
 
 ## RDS PostgreSQL
@@ -105,41 +166,50 @@ kubectl get nodes
 ### Create DB Subnet Group
 
 ```bash
-# Get private subnet IDs
+# Get private subnet IDs (eksctl tags them with 'Private')
 PRIVATE_SUBNETS=$(aws ec2 describe-subnets \
-  --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:aws:cloudformation:logical-id,Values=SubnetPrivate*" \
-  --query 'Subnets[].SubnetId' --output text | tr '\t' ',')
+  --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=*Private*" \
+  --query 'Subnets[].SubnetId' --output text)
 
 aws rds create-db-subnet-group \
   --db-subnet-group-name coder-db-subnet \
   --db-subnet-group-description "Coder RDS subnets" \
-  --subnet-ids ${PRIVATE_SUBNETS//,/ }
+  --subnet-ids $PRIVATE_SUBNETS
+```
+
+### Store Password in Secrets Manager
+
+```bash
+DB_PASSWORD=$(openssl rand -base64 24)
+
+aws secretsmanager create-secret \
+  --name coder/database-password \
+  --secret-string "$DB_PASSWORD" \
+  --description "Coder RDS PostgreSQL password"
 ```
 
 ### Create Database
 
 ```bash
-# Generate a secure password (store this safely)
-DB_PASSWORD=$(openssl rand -base64 24)
-echo "Save this password: $DB_PASSWORD"
-
 aws rds create-db-instance \
   --db-instance-identifier coder-db \
-  --db-instance-class db.t3.medium \
+  --db-instance-class db.m7i.large \
   --engine postgres \
   --engine-version 15 \
   --db-name coder \
   --master-username coder \
   --master-user-password "$DB_PASSWORD" \
-  --allocated-storage 20 \
+  --allocated-storage 100 \
   --storage-type gp3 \
   --vpc-security-group-ids $RDS_SG \
   --db-subnet-group-name coder-db-subnet \
   --no-publicly-accessible \
-  --backup-retention-period 7
+  --backup-retention-period 7 \
+  --multi-az \
+  --storage-encrypted
 ```
 
-Wait for the database to be available (~5-10 minutes):
+Wait for the database to be available (~10-15 minutes):
 
 ```bash
 aws rds wait db-instance-available --db-instance-identifier coder-db
@@ -238,11 +308,20 @@ Expected output:
 Save these for the next step:
 
 ```bash
-echo "CLUSTER_NAME=$CLUSTER_NAME"
-echo "RDS_ENDPOINT=$RDS_ENDPOINT"
-echo "DB_PASSWORD=$DB_PASSWORD"
-echo "CERT_ARN=$CERT_ARN"
-echo "CODER_DOMAIN=$CODER_DOMAIN"
+cat <<EOF
+CLUSTER_NAME=$CLUSTER_NAME
+RDS_ENDPOINT=$RDS_ENDPOINT
+CERT_ARN=$CERT_ARN
+CODER_DOMAIN=$CODER_DOMAIN
+EOF
+```
+
+To retrieve the database password later:
+
+```bash
+aws secretsmanager get-secret-value \
+  --secret-id coder/database-password \
+  --query 'SecretString' --output text
 ```
 
 ## Next Steps
