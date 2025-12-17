@@ -1,7 +1,7 @@
 # Repo Agent Instructions
 ## Coder on AWS Deployment Guide
 
-You are assisting on a documentation repository that incrementally builds a **step-by-step production deployment guide for Coder on AWS**.
+You are assisting on a documentation repository that incrementally builds an opinionated 500 workspace PEAK **step-by-step production deployment guide for Coder on AWS**.
 
 This repo is written **iteratively**. You must work in small, verifiable chunks so the human can test each step before proceeding.
 

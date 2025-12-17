@@ -1,127 +1,156 @@
 # Prerequisites
 
-Before deploying Coder on AWS, ensure you have the following in place.
+Gather the following before deploying Coder on AWS.
 
-## Required Tools
+> This guide is opinionated for **500 peak concurrent workspaces**.
+
+## Tools
 
 | Tool | Version | Purpose |
 |------|---------|---------|
 | [AWS CLI](https://aws.amazon.com/cli/) | 2.x | AWS resource management |
 | [kubectl](https://kubernetes.io/docs/tasks/tools/) | ±1 minor of EKS | Kubernetes management |
 | [Helm](https://helm.sh/docs/intro/install/) | 3.5+ | Coder deployment |
+| [coder CLI](https://coder.com/docs/install) | latest | Template management, admin tasks |
+| [eksctl](https://eksctl.io/) | latest | EKS cluster creation |
 
-Optional: [eksctl](https://eksctl.io/) for cluster creation, [jq](https://jqlang.github.io/jq/) for scripting.
-
-Verify your setup:
+Verify installations:
 
 ```bash
-aws sts get-caller-identity  # Confirms AWS auth
+aws --version
 kubectl version --client
 helm version
+coder version
+eksctl version
 ```
 
-## AWS Account Access
+## AWS Account
 
-Your IAM principal needs permissions to create/manage:
+### Region
 
-- **EKS** cluster and node groups
-- **VPC** networking (subnets, security groups, NAT gateways)
-- **RDS** PostgreSQL instance
-- **ELB** (Network Load Balancer)
-- **IAM** roles and policies (including `iam:PassRole`)
+Select your target region. This guide uses `us-west-2` in examples.
+
+### IAM Permissions
+
+Your IAM user or role must have the following permissions:
+
+| Service | Actions |
+|---------|---------|
+| **EC2 / VPC** | `CreateVpc`, `DeleteVpc`, `CreateSubnet`, `DeleteSubnet`, `CreateRouteTable`, `DeleteRouteTable`, `CreateRoute`, `DeleteRoute`, `AssociateRouteTable`, `DisassociateRouteTable`, `CreateInternetGateway`, `DeleteInternetGateway`, `AttachInternetGateway`, `DetachInternetGateway`, `CreateNatGateway`, `DeleteNatGateway`, `AllocateAddress`, `ReleaseAddress`, `CreateSecurityGroup`, `DeleteSecurityGroup`, `AuthorizeSecurityGroupIngress`, `AuthorizeSecurityGroupEgress`, `RevokeSecurityGroupIngress`, `RevokeSecurityGroupEgress`, `CreateVpcEndpoint`, `DeleteVpcEndpoints`, `CreateTags`, `DeleteTags`, `Describe*` |
+| **EKS** | `CreateCluster`, `DeleteCluster`, `UpdateClusterConfig`, `UpdateClusterVersion`, `CreateNodegroup`, `DeleteNodegroup`, `UpdateNodegroupConfig`, `CreateAddon`, `DeleteAddon`, `UpdateAddon`, `AssociateIdentityProviderConfig`, `CreateAccessEntry`, `Describe*`, `List*` |
+| **RDS** | `CreateDBInstance`, `DeleteDBInstance`, `ModifyDBInstance`, `CreateDBSubnetGroup`, `DeleteDBSubnetGroup`, `CreateDBParameterGroup`, `DeleteDBParameterGroup`, `Describe*`, `List*`, `AddTagsToResource` |
+| **ELB** | `CreateLoadBalancer`, `DeleteLoadBalancer`, `CreateTargetGroup`, `DeleteTargetGroup`, `CreateListener`, `DeleteListener`, `ModifyLoadBalancerAttributes`, `ModifyTargetGroupAttributes`, `RegisterTargets`, `DeregisterTargets`, `Describe*` |
+| **IAM** | `CreateRole`, `DeleteRole`, `AttachRolePolicy`, `DetachRolePolicy`, `PutRolePolicy`, `DeleteRolePolicy`, `CreatePolicy`, `DeletePolicy`, `CreateInstanceProfile`, `DeleteInstanceProfile`, `AddRoleToInstanceProfile`, `RemoveRoleFromInstanceProfile`, `CreateOpenIDConnectProvider`, `DeleteOpenIDConnectProvider`, `PassRole`, `GetRole`, `ListRoles`, `ListPolicies`, `GetPolicy`, `GetPolicyVersion` |
+| **ACM** | `RequestCertificate`, `DeleteCertificate`, `DescribeCertificate`, `ListCertificates`, `AddTagsToCertificate` |
+| **Route 53** | `CreateHostedZone`, `ChangeResourceRecordSets`, `GetHostedZone`, `ListHostedZones`, `ListResourceRecordSets`, `GetChange` |
+| **Secrets Manager** | `CreateSecret`, `DeleteSecret`, `GetSecretValue`, `PutSecretValue`, `UpdateSecret`, `DescribeSecret`, `ListSecrets`, `TagResource` |
+| **Auto Scaling** | `CreateAutoScalingGroup`, `DeleteAutoScalingGroup`, `UpdateAutoScalingGroup`, `CreateLaunchConfiguration`, `DeleteLaunchConfiguration`, `Describe*`, `SetDesiredCapacity`, `TerminateInstanceInAutoScalingGroup` |
+| **CloudFormation** | `CreateStack`, `DeleteStack`, `UpdateStack`, `DescribeStacks`, `DescribeStackEvents`, `ListStacks` (required by eksctl) |
+| **SSM** | `GetParameter`, `GetParameters` (required by eksctl for AMI lookup) |
 
 <details>
-<summary>Example IAM policy (broad, for initial deployment)</summary>
+<summary>Example IAM policy (broad, scope down after deployment)</summary>
 
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [{
     "Effect": "Allow",
-    "Action": ["eks:*", "ec2:*", "rds:*", "elasticloadbalancing:*",
-               "iam:CreateRole", "iam:AttachRolePolicy", "iam:PutRolePolicy", "iam:PassRole"],
+    "Action": [
+      "ec2:*",
+      "eks:*",
+      "rds:*",
+      "elasticloadbalancing:*",
+      "iam:CreateRole", "iam:DeleteRole", "iam:AttachRolePolicy", "iam:DetachRolePolicy",
+      "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:CreatePolicy", "iam:DeletePolicy",
+      "iam:CreateInstanceProfile", "iam:DeleteInstanceProfile",
+      "iam:AddRoleToInstanceProfile", "iam:RemoveRoleFromInstanceProfile",
+      "iam:CreateOpenIDConnectProvider", "iam:DeleteOpenIDConnectProvider",
+      "iam:PassRole", "iam:GetRole", "iam:ListRoles", "iam:ListPolicies",
+      "iam:GetPolicy", "iam:GetPolicyVersion",
+      "acm:*",
+      "route53:*",
+      "secretsmanager:*",
+      "autoscaling:*",
+      "cloudformation:*",
+      "ssm:GetParameter", "ssm:GetParameters"
+    ],
     "Resource": "*"
   }]
 }
 ```
-
-Scope down to least privilege after successful deployment.
 </details>
 
-## EKS Cluster
+### Service Quotas
 
-Create a cluster or use an existing one:
+Verify these quotas in your target region before deployment:
 
-```bash
-# Create with eksctl (if needed)
-eksctl create cluster \
-  --name coder-cluster \
-  --region us-west-2 \
-  --node-type t3.large \
-  --nodes 3
+| Quota | Code | Default | Required | Action |
+|-------|------|---------|----------|--------|
+| EC2 On-Demand Standard vCPUs | `L-1216C47A` | 5 | **≥3,000** | 🔴 Request increase |
+| EBS gp3 storage (TiB) | `L-7A658B76` | 50 | 18 | ✅ Sufficient |
+| EBS volumes | `L-D18FCD1D` | 5,000 | 600 | ✅ Sufficient |
+| VPC Elastic IPs | `L-0263D0A3` | 5 | 1 | ✅ Sufficient |
+| Network interfaces (ENIs) | `L-DF5E4CA3` | 5,000 | ~400 | ✅ Sufficient |
+| EKS nodes per node group | `L-BD136F5B` | 450 | ~50 | ✅ Sufficient |
+| RDS DB instances | — | 40 | 1 | ✅ Sufficient |
 
-# Configure kubectl
-aws eks update-kubeconfig --name coder-cluster --region us-west-2
-
-# Verify
-kubectl get nodes
-```
-
-**Requirements:**
-- Kubernetes 1.27+ (for longest support runway)
-- Nodes: 2+ with at least 2 vCPU, 4 GB RAM each
-
-## PostgreSQL Database
-
-Coder requires PostgreSQL 13+. Create an RDS instance:
+Check your current vCPU quota:
 
 ```bash
-aws rds create-db-instance \
-  --db-instance-identifier coder-db \
-  --db-instance-class db.t3.medium \
-  --engine postgres \
-  --engine-version 15 \
-  --db-name coder \
-  --master-username coder \
-  --master-user-password <secure-password> \
-  --allocated-storage 20 \
-  --vpc-security-group-ids <sg-id> \
-  --db-subnet-group-name <subnet-group>
+aws service-quotas get-service-quota \
+  --service-code ec2 \
+  --quota-code L-1216C47A \
+  --region us-west-2
 ```
 
-**Network connectivity:** RDS must be reachable from EKS nodes on port 5432.
-Place both in the same VPC and configure security groups accordingly.
+Request increase if needed (1-2 business days for approval):
 
-## Domain and TLS (Production)
+```bash
+aws service-quotas request-service-quota-increase \
+  --service-code ec2 \
+  --quota-code L-1216C47A \
+  --desired-value 3000 \
+  --region us-west-2
+```
 
-For production, you need:
-- A domain (e.g., `coder.example.com`)
-- TLS certificate via [AWS Certificate Manager](https://aws.amazon.com/certificate-manager/) or cert-manager
+## Workspace Sizing
 
-## Network Requirements
+This guide uses the following t-shirt sizes and distribution:
 
-| Direction | Port | Purpose |
-|-----------|------|---------|
-| Outbound | 443 | Container registries, Terraform providers |
-| Inbound | 443 | User access to Coder UI/API |
-| Inbound | 22 (optional) | Direct SSH to workspaces |
+| Size | vCPU | RAM | Distribution |
+|------|------|-----|--------------|
+| S | 2 | 4 GB | 25% |
+| M | 4 | 8 GB | 60% |
+| L | 8 | 16 GB | 15% |
 
-## Service Quotas
+These estimates drive node pool sizing in the infrastructure setup.
 
-Check these quotas in your target region (Service Quotas console):
-- EC2: Elastic IPs, NAT gateways, running instances
-- EKS: Clusters per region
-- RDS: DB instances
+## Domain & DNS
+
+- **Base domain** (e.g., `example.com`) — must be a hosted zone in Route 53
+- **Coder subdomain** (e.g., `coder.example.com`) — will be configured as `CODER_ACCESS_URL` during installation
+
+If your base domain is registered elsewhere, [delegate to Route 53](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/migrate-dns-domain-in-use.html) or create a subdomain hosted zone.
+
+## Authentication
+
+Coder requires an identity provider for production use.
+
+- Your SSO provider must support **OpenID Connect (OIDC)**
+- Have client ID and client secret ready
+- See [Coder OIDC documentation](https://coder.com/docs/admin/auth#openid-connect) for provider requirements
 
 ## Checklist
 
+- [ ] Tools installed: AWS CLI, kubectl, Helm, coder CLI, eksctl
 - [ ] AWS CLI configured (`aws sts get-caller-identity` works)
-- [ ] kubectl and Helm installed
-- [ ] EKS cluster running and accessible
-- [ ] RDS PostgreSQL instance created
-- [ ] Security groups allow EKS → RDS on port 5432
-- [ ] Domain and TLS certificate ready (production)
+- [ ] IAM permissions verified (see IAM Permissions section above)
+- [ ] Region selected
+- [ ] Domain is a Route 53 hosted zone
+- [ ] OIDC provider configured with client credentials
+- [ ] EC2 vCPU quota ≥3,000 (or increase requested)
 
 ## Next Steps
 
-Proceed to [Installation](../install/index.md).
+Proceed to [Infrastructure Setup](../install/infrastructure.md).

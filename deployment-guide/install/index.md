@@ -3,8 +3,8 @@
 This guide walks through installing Coder on your AWS EKS cluster using Helm.
 
 > [!NOTE]
-> Ensure you have completed all [prerequisites](../prerequisites/index.md)
-> before proceeding.
+> Complete [prerequisites](../prerequisites/index.md) and
+> [infrastructure setup](infrastructure.md) before proceeding.
 
 ## Overview
 
