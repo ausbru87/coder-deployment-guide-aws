@@ -94,6 +94,21 @@ coder:
   serviceAccount:
     create: true
     name: coder
+    workspacePerms: true
+  
+  # Schedule coderd on coder-system nodes
+  nodeSelector:
+    coder.com/node-type: system
+  
+  # Resource requests/limits
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "2Gi"
+    limits:
+      cpu: "2000m"
+      memory: "4Gi"
+  
   env:
     - name: CODER_PG_CONNECTION_URL
       valueFrom:
@@ -102,13 +117,21 @@ coder:
           key: url
     - name: CODER_ACCESS_URL
       value: "https://${CODER_DOMAIN}"
+    - name: CODER_WILDCARD_ACCESS_URL
+      value: "*.${CODER_DOMAIN}"
+    # Observability
+    - name: CODER_PROMETHEUS_ENABLE
+      value: "true"
+  
   service:
     type: LoadBalancer
+    sessionAffinity: None
     annotations:
       service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
       service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
       service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "${CERT_ARN}"
       service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+  
   volumes:
     - name: secrets-store
       csi:
@@ -201,6 +224,46 @@ Expected output:
 ## Create First User
 
 Open `https://<your-coder-domain>` in a browser to create the first admin user.
+
+## Workspace Node Scheduling
+
+Workspaces should run on `coder-ws` nodes, not on system nodes. Configure your Terraform templates to use the workspace node selector:
+
+```hcl
+# In your Coder Terraform template
+resource "kubernetes_deployment" "workspace" {
+  # ...
+  spec {
+    template {
+      spec {
+        node_selector = {
+          "coder.com/node-type" = "workspace"
+        }
+        # ...
+      }
+    }
+  }
+}
+```
+
+Or for Docker-based templates using `kubernetes_pod`:
+
+```hcl
+resource "kubernetes_pod" "workspace" {
+  # ...
+  spec {
+    node_selector = {
+      "coder.com/node-type" = "workspace"
+    }
+    # ...
+  }
+}
+```
+
+This ensures:
+- **coderd** runs on `coder-system` nodes (via Helm values)
+- **workspaces** run on `coder-ws` nodes (via template config)
+- **provisioners** can run on `coder-prov` nodes (if using external provisioners)
 
 ## Next Steps
 
