@@ -91,16 +91,26 @@ source coder-infra.env
 
 cat <<EOF > values.yaml
 coder:
+  # -- Service account configuration
   serviceAccount:
     create: true
     name: coder
     workspacePerms: true
+    enableDeployments: true
   
-  # Schedule coderd on coder-system nodes
+  # -- Image configuration
+  image:
+    repo: "ghcr.io/coder/coder"
+    pullPolicy: IfNotPresent
+  
+  # -- Number of replicas (1 for MVP, increase for HA - Enterprise feature)
+  replicaCount: 1
+  
+  # -- Schedule coderd on coder-system nodes
   nodeSelector:
     coder.com/node-type: system
   
-  # Resource requests/limits
+  # -- Resource requests/limits for coderd
   resources:
     requests:
       cpu: "1000m"
@@ -109,6 +119,16 @@ coder:
       cpu: "2000m"
       memory: "4Gi"
   
+  # -- Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    seccompProfile:
+      type: RuntimeDefault
+  
+  # -- Environment variables
   env:
     - name: CODER_PG_CONNECTION_URL
       valueFrom:
@@ -118,20 +138,28 @@ coder:
     - name: CODER_ACCESS_URL
       value: "https://${CODER_DOMAIN}"
     - name: CODER_WILDCARD_ACCESS_URL
-      value: "*.${CODER_DOMAIN}"
+      value: "https://*.${CODER_DOMAIN}"
     # Observability
     - name: CODER_PROMETHEUS_ENABLE
       value: "true"
+    # Logging
+    - name: CODER_VERBOSE
+      value: "false"
   
+  # -- Service configuration
   service:
+    enable: true
     type: LoadBalancer
     sessionAffinity: None
+    externalTrafficPolicy: Cluster
     annotations:
       service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
       service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
       service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "${CERT_ARN}"
       service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"
   
+  # -- Secrets Store CSI volume for database credentials
   volumes:
     - name: secrets-store
       csi:
@@ -143,6 +171,20 @@ coder:
     - name: secrets-store
       mountPath: "/mnt/secrets"
       readOnly: true
+  
+  # -- Pod anti-affinity for HA (spreads replicas across nodes)
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/instance
+                  operator: In
+                  values:
+                    - coder
+            topologyKey: kubernetes.io/hostname
+          weight: 1
 EOF
 
 cat values.yaml
