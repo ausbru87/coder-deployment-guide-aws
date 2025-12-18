@@ -454,4 +454,4 @@ aws secretsmanager get-secret-value \
 
 ## Next Steps
 
-Proceed to [Coder Installation](index.md).
+Proceed to [Coder Installation](coder.md).
