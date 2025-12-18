@@ -226,15 +226,23 @@ kubectl get nodes -L coder.com/node-type
 ```bash
 source coder-infra.env
 
-# Get private subnet IDs (eksctl tags them with 'Private')
+# Get private subnet IDs
 PRIVATE_SUBNETS=$(aws ec2 describe-subnets \
   --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=*Private*" \
+  --region $AWS_REGION \
   --query 'Subnets[].SubnetId' --output text)
 
-aws rds create-db-subnet-group \
-  --db-subnet-group-name coder-db-subnet \
-  --db-subnet-group-description "Coder RDS subnets" \
-  --subnet-ids $PRIVATE_SUBNETS
+# Create subnet group (or skip if exists)
+if ! aws rds describe-db-subnet-groups --db-subnet-group-name coder-db-subnet --region $AWS_REGION &>/dev/null; then
+  aws rds create-db-subnet-group \
+    --db-subnet-group-name coder-db-subnet \
+    --db-subnet-group-description "Coder RDS subnets" \
+    --subnet-ids $PRIVATE_SUBNETS \
+    --region $AWS_REGION
+  echo "Created DB subnet group"
+else
+  echo "DB subnet group already exists"
+fi
 ```
 
 ### Store Password in Secrets Manager
@@ -242,13 +250,22 @@ aws rds create-db-subnet-group \
 ```bash
 source coder-infra.env
 
-DB_PASSWORD=$(openssl rand -base64 24)
-
-aws secretsmanager create-secret \
-  --name coder/database-password \
-  --secret-string "$DB_PASSWORD" \
-  --region $AWS_REGION \
-  --description "Coder RDS PostgreSQL password"
+# Create secret (or retrieve existing)
+if ! aws secretsmanager describe-secret --secret-id coder/database-password --region $AWS_REGION &>/dev/null; then
+  DB_PASSWORD=$(openssl rand -base64 24)
+  aws secretsmanager create-secret \
+    --name coder/database-password \
+    --secret-string "$DB_PASSWORD" \
+    --region $AWS_REGION \
+    --description "Coder RDS PostgreSQL password"
+  echo "Created secret"
+else
+  echo "Secret already exists"
+  DB_PASSWORD=$(aws secretsmanager get-secret-value \
+    --secret-id coder/database-password \
+    --region $AWS_REGION \
+    --query 'SecretString' --output text)
+fi
 ```
 
 ### Create Database
@@ -256,23 +273,29 @@ aws secretsmanager create-secret \
 ```bash
 source coder-infra.env
 
-aws rds create-db-instance \
-  --db-instance-identifier coder-db \
-  --region $AWS_REGION \
-  --db-instance-class db.m7i.large \
-  --engine postgres \
-  --engine-version 15 \
-  --db-name coder \
-  --master-username coder \
-  --master-user-password "$DB_PASSWORD" \
-  --allocated-storage 100 \
-  --storage-type gp3 \
-  --vpc-security-group-ids $RDS_SG \
-  --db-subnet-group-name coder-db-subnet \
-  --no-publicly-accessible \
-  --backup-retention-period 7 \
-  --multi-az \
-  --storage-encrypted
+# Create RDS instance (or skip if exists)
+if ! aws rds describe-db-instances --db-instance-identifier coder-db --region $AWS_REGION &>/dev/null; then
+  aws rds create-db-instance \
+    --db-instance-identifier coder-db \
+    --region $AWS_REGION \
+    --db-instance-class db.m7i.large \
+    --engine postgres \
+    --engine-version 15 \
+    --db-name coder \
+    --master-username coder \
+    --master-user-password "$DB_PASSWORD" \
+    --allocated-storage 100 \
+    --storage-type gp3 \
+    --vpc-security-group-ids $RDS_SG \
+    --db-subnet-group-name coder-db-subnet \
+    --no-publicly-accessible \
+    --backup-retention-period 7 \
+    --multi-az \
+    --storage-encrypted
+  echo "Creating RDS instance..."
+else
+  echo "RDS instance already exists"
+fi
 ```
 
 Wait for the database to be available (~10-15 minutes):
