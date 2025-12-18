@@ -157,68 +157,6 @@ aws ec2 describe-security-groups --group-ids $RDS_SG --region $AWS_REGION \
   --query 'SecurityGroups[0].IpPermissions'
 ```
 
-## EKS Node Groups
-
-Create three node groups per the [architecture](../architecture/diagrams.md):
-
-### coder-system (coderd)
-
-```bash
-source coder-infra.env
-
-eksctl create nodegroup \
-  --cluster $CLUSTER_NAME \
-  --region $AWS_REGION \
-  --name coder-system \
-  --node-type m7i.large \
-  --nodes 2 \
-  --nodes-min 2 \
-  --nodes-max 2 \
-  --node-private-networking \
-  --node-labels "coder.com/node-type=system"
-```
-
-### coder-prov (provisioners)
-
-```bash
-source coder-infra.env
-
-eksctl create nodegroup \
-  --cluster $CLUSTER_NAME \
-  --region $AWS_REGION \
-  --name coder-prov \
-  --node-type c7i.2xlarge \
-  --nodes 2 \
-  --nodes-min 0 \
-  --nodes-max 2 \
-  --node-private-networking \
-  --node-labels "coder.com/node-type=provisioner"
-```
-
-### coder-ws (workspaces)
-
-```bash
-source coder-infra.env
-
-eksctl create nodegroup \
-  --cluster $CLUSTER_NAME \
-  --region $AWS_REGION \
-  --name coder-ws \
-  --node-type m7i.12xlarge \
-  --nodes 2 \
-  --nodes-min 2 \
-  --nodes-max 20 \
-  --node-private-networking \
-  --node-labels "coder.com/node-type=workspace"
-```
-
-### Verify
-
-```bash
-aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
-kubectl get nodes -L coder.com/node-type
-```
-
 ## RDS PostgreSQL
 
 ### Create DB Subnet Group
@@ -320,6 +258,71 @@ RDS_ENDPOINT=$(aws rds describe-db-instances \
 echo "export RDS_ENDPOINT=$RDS_ENDPOINT" >> coder-infra.env
 
 echo "RDS Endpoint: $RDS_ENDPOINT"
+```
+
+## EKS Node Groups
+
+> [!TIP]
+> Start RDS creation above, then run node groups in parallel while RDS provisions (~10-15 min).
+
+Create three node groups per the [architecture](../architecture/diagrams.md):
+
+### coder-system (coderd)
+
+```bash
+source coder-infra.env
+
+eksctl create nodegroup \
+  --cluster $CLUSTER_NAME \
+  --region $AWS_REGION \
+  --name coder-system \
+  --node-type m7i.large \
+  --nodes 2 \
+  --nodes-min 2 \
+  --nodes-max 2 \
+  --node-private-networking \
+  --node-labels "coder.com/node-type=system"
+```
+
+### coder-prov (provisioners)
+
+```bash
+source coder-infra.env
+
+eksctl create nodegroup \
+  --cluster $CLUSTER_NAME \
+  --region $AWS_REGION \
+  --name coder-prov \
+  --node-type c7i.2xlarge \
+  --nodes 2 \
+  --nodes-min 0 \
+  --nodes-max 2 \
+  --node-private-networking \
+  --node-labels "coder.com/node-type=provisioner"
+```
+
+### coder-ws (workspaces)
+
+```bash
+source coder-infra.env
+
+eksctl create nodegroup \
+  --cluster $CLUSTER_NAME \
+  --region $AWS_REGION \
+  --name coder-ws \
+  --node-type m7i.12xlarge \
+  --nodes 2 \
+  --nodes-min 2 \
+  --nodes-max 20 \
+  --node-private-networking \
+  --node-labels "coder.com/node-type=workspace"
+```
+
+### Verify
+
+```bash
+aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
+kubectl get nodes -L coder.com/node-type
 ```
 
 ## ACM Certificate
