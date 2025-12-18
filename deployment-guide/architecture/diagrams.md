@@ -278,7 +278,7 @@ flowchart TB
 │  │  Min: 2 / Max: 2    │ │  Min: 0 / Max: 2    │ │  Min: 2 / Max: 20   │      │
 │  │  Scaling: Static    │ │  Scaling: Time-based│ │  Scaling: Time+CA   │      │
 │  │                     │ │  (business hours)   │ │  (business hours)   │      │
-│  │  Label: system      │ │  Label: provisioner │ │  Label: workspace   │      │
+│  │  Taint: system      │ │  Label: provisioner │ │  Label: workspace   │      │
 │  └─────────────────────┘ └─────────────────────┘ └─────────────────────┘      │
 │                                                                                 │
 │  Namespaces:                                                                    │

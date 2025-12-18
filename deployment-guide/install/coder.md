@@ -106,9 +106,14 @@ coder:
   # -- Number of replicas (1 for MVP, increase for HA - Enterprise feature)
   replicaCount: 1
   
-  # -- Schedule coderd on coder-system nodes
+  # -- Schedule coderd on coder-system nodes (tainted)
   nodeSelector:
     coder.com/node-type: system
+  tolerations:
+    - key: "coder.com/node-type"
+      operator: "Equal"
+      value: "system"
+      effect: "NoSchedule"
   
   # -- Resource requests/limits for coderd
   resources:
