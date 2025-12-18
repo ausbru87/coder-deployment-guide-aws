@@ -389,8 +389,8 @@ eksctl create nodegroup \
   --nodes-min 2 \
   --nodes-max 2 \
   --node-private-networking \
-  --node-labels "coder.com/node-type=system" \
-  --node-taints "coder.com/node-type=system:NoSchedule"
+  --node-labels "coder/node-type=system" \
+  --node-taints "coder/node-type=system:NoSchedule"
 ```
 
 ### coder-prov (provisioners)
@@ -407,7 +407,7 @@ eksctl create nodegroup \
   --nodes-min 0 \
   --nodes-max 2 \
   --node-private-networking \
-  --node-labels "coder.com/node-type=provisioner"
+  --node-labels "coder/node-type=provisioner"
 ```
 
 ### coder-ws (workspaces)
@@ -424,14 +424,14 @@ eksctl create nodegroup \
   --nodes-min 2 \
   --nodes-max 20 \
   --node-private-networking \
-  --node-labels "coder.com/node-type=workspace"
+  --node-labels "coder/node-type=workspace"
 ```
 
 ### Verify
 
 ```bash
 aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
-kubectl get nodes -L coder.com/node-type
+kubectl get nodes -L coder/node-type
 ```
 
 ## ACM Certificate
@@ -522,7 +522,7 @@ Confirm all resources are ready:
 source coder-infra.env
 
 # 1. EKS Nodes (should show 6 nodes across 3 groups)
-kubectl get nodes -L coder.com/node-type
+kubectl get nodes -L coder/node-type
 
 # 2. RDS (should show "available")
 aws rds describe-db-instances --db-instance-identifier coder-db --region $AWS_REGION \

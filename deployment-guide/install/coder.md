@@ -108,9 +108,9 @@ coder:
   
   # -- Schedule coderd on coder-system nodes (tainted)
   nodeSelector:
-    coder.com/node-type: system
+    coder/node-type: system
   tolerations:
-    - key: "coder.com/node-type"
+    - key: "coder/node-type"
       operator: "Equal"
       value: "system"
       effect: "NoSchedule"
@@ -284,7 +284,7 @@ resource "kubernetes_deployment" "workspace" {
     template {
       spec {
         node_selector = {
-          "coder.com/node-type" = "workspace"
+          "coder/node-type" = "workspace"
         }
         # ...
       }
@@ -300,7 +300,7 @@ resource "kubernetes_pod" "workspace" {
   # ...
   spec {
     node_selector = {
-      "coder.com/node-type" = "workspace"
+      "coder/node-type" = "workspace"
     }
     # ...
   }
