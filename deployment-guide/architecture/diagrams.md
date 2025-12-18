@@ -94,7 +94,7 @@ flowchart TB
 
 | Component | AWS Service | Purpose |
 |-----------|-------------|---------|
-| Networking | VPC, 2 AZs, 1 NAT GW | Network isolation |
+| Networking | VPC, 3 AZs, NAT GW | Network isolation |
 | Compute | EKS with 3 node groups | Kubernetes workloads |
 | Database | RDS PostgreSQL Multi-AZ (db.m7i.large) | Coder metadata |
 | Load Balancing | Network Load Balancer | TLS termination, traffic distribution |
@@ -188,7 +188,7 @@ flowchart TB
 │                           Security Boundaries                                   │
 │                                                                                 │
 │  ┌───────────────────────────────────────────────────────────────────────────┐ │
-│  │                            IAM / IRSA                                      │ │
+│  │                         IAM / Pod Identity                                 │ │
 │  │                                                                            │ │
 │  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐           │ │
 │  │  │ CoderServerRole │  │ CoderProvRole   │  │ EKS Controllers │           │ │
@@ -221,7 +221,7 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph Security["Security Boundaries"]
-        subgraph IAM["IAM / IRSA"]
+        subgraph IAM["IAM / Pod Identity"]
             server["CoderServerRole<br/>Secrets Mgr, RDS"]
             prov_role["CoderProvRole<br/>EC2, EKS"]
             ctrl["EKS Controllers<br/>EBS CSI, CA"]
@@ -253,7 +253,7 @@ flowchart TB
 | TLS Termination | NLB with ACM certificates |
 | TLS Version | TLS 1.2 minimum |
 | Data at Rest | AES-256 (RDS, EBS) |
-| IAM | IRSA for least-privilege |
+| IAM | Pod Identity for least-privilege |
 | Network | Private subnets, VPC endpoints |
 | Secrets | AWS Secrets Manager |
 | Audit | CloudTrail, VPC Flow Logs |
@@ -278,7 +278,7 @@ flowchart TB
 │  │  Min: 2 / Max: 2    │ │  Min: 0 / Max: 2    │ │  Min: 2 / Max: 20   │      │
 │  │  Scaling: Static    │ │  Scaling: Time-based│ │  Scaling: Time+CA   │      │
 │  │                     │ │  (business hours)   │ │  (business hours)   │      │
-│  │  Taint: system      │ │  Taint: provisioner │ │  Taint: workspace   │      │
+│  │  Label: system      │ │  Label: provisioner │ │  Label: workspace   │      │
 │  └─────────────────────┘ └─────────────────────┘ └─────────────────────┘      │
 │                                                                                 │
 │  Namespaces:                                                                    │

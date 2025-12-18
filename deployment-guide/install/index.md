@@ -2,6 +2,27 @@
 
 This section covers deploying Coder on AWS EKS.
 
+## Scope
+
+This guide is opinionated for:
+
+- **500 peak concurrent workspaces** with 99.9% availability target
+- **Kubernetes (pod-based) workspaces only** — EC2/VM workspaces require additional IAM configuration not covered here
+- **High availability** — multi-replica coderd, RDS Multi-AZ, pod anti-affinity
+- **External provisioners** — dedicated node group for provisioner workloads
+- **Single AWS region** deployment (no multi-region)
+- **Public-facing** Coder instance (internet-accessible via NLB)
+- **RDS PostgreSQL Multi-AZ** for database (not Aurora, not self-managed)
+- **ACM + NLB** for TLS termination (no cert-manager)
+- **Pod Identity** for IAM authentication (not IRSA)
+- **Observability stack** — Prometheus, Grafana, alerting
+
+### Not Covered
+
+- Air-gapped / private deployments
+- Multi-region deployments
+- Custom identity providers (OIDC setup referenced but not detailed)
+
 ## Steps
 
 | Step | Document | Description | Time |
