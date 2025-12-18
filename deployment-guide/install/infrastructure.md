@@ -56,11 +56,21 @@ eksctl create cluster -f cluster-config.yaml --without-nodegroup
 ```
 
 This creates:
-- VPC with CIDR `10.0.0.0/16`
-- Public subnets (for load balancers)
-- Private subnets (for nodes and RDS)
-- NAT Gateway (for outbound traffic from private subnets)
-- Internet Gateway
+
+| Resource | Description |
+|----------|-------------|
+| **VPC** | CIDR `10.0.0.0/16` |
+| **Public Subnets** | 3 subnets (one per AZ) for load balancers |
+| **Private Subnets** | 3 subnets (one per AZ) for nodes and RDS |
+| **Internet Gateway** | Public internet access |
+| **NAT Gateway** | Outbound internet for private subnets |
+| **Route Tables** | Public and private routing |
+| **EKS Cluster** | Kubernetes control plane |
+| **OIDC Provider** | IAM identity provider for IRSA/Pod Identity |
+| **CloudWatch Log Group** | `/aws/eks/${CLUSTER_NAME}/cluster` |
+| **IAM Roles** | Cluster service role, Pod Identity role for vpc-cni |
+| **EKS Addons** | vpc-cni, kube-proxy, coredns, eks-pod-identity-agent |
+| **Security Groups** | Cluster SG (control plane ↔ nodes) |
 
 Verify:
 

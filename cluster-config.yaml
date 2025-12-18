@@ -9,3 +9,16 @@ autoModeConfig:
   enabled: false
 iam:
   withOIDC: true
+addons:
+- name: vpc-cni
+  version: latest
+  resolveConflicts: overwrite
+  useDefaultPodIdentityAssociations: true
+- name: kube-proxy
+  version: latest
+  resolveConflicts: overwrite
+- name: coredns
+  version: latest
+  resolveConflicts: overwrite
+- name: eks-pod-identity-agent
+  version: latest
