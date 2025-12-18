@@ -15,14 +15,31 @@ This guide creates:
 4. RDS PostgreSQL database
 5. ACM certificate
 
+## Environment Setup
+
+Create an environment file to store variables across sessions:
+
+```bash
+# Create environment file (edit these values for your deployment)
+cat <<'EOF' > coder-infra.env
+export AWS_REGION=us-west-2
+export CLUSTER_NAME=coder-cluster
+export CODER_DOMAIN=coder.example.com
+EOF
+
+# Source it
+source coder-infra.env
+```
+
+> [!TIP]
+> Run `source coder-infra.env` at the start of each terminal session to restore variables.
+
 ## VPC and Networking
 
 Create a VPC with public and private subnets across multiple availability zones:
 
 ```bash
-# Set variables
-export AWS_REGION=us-west-2
-export CLUSTER_NAME=coder-cluster
+source coder-infra.env
 
 # Create VPC and EKS cluster (creates subnets, NAT, IGW)
 cat <<EOF > cluster-config.yaml
@@ -89,29 +106,46 @@ aws eks list-addons --cluster-name $CLUSTER_NAME --region $AWS_REGION
 Create a security group for RDS that allows PostgreSQL from EKS nodes:
 
 ```bash
+source coder-infra.env
+
 # Get VPC ID
 VPC_ID=$(aws eks describe-cluster --name $CLUSTER_NAME --region $AWS_REGION \
   --query 'cluster.resourcesVpcConfig.vpcId' --output text)
 
-# Create RDS security group
-RDS_SG=$(aws ec2 create-security-group \
-  --group-name coder-rds-sg \
-  --description "Allow PostgreSQL from EKS" \
-  --vpc-id $VPC_ID \
+# Create RDS security group (or get existing)
+RDS_SG=$(aws ec2 describe-security-groups \
+  --filters "Name=group-name,Values=coder-rds-sg" "Name=vpc-id,Values=$VPC_ID" \
   --region $AWS_REGION \
-  --query 'GroupId' --output text)
+  --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null)
+
+if [ "$RDS_SG" = "None" ] || [ -z "$RDS_SG" ]; then
+  RDS_SG=$(aws ec2 create-security-group \
+    --group-name coder-rds-sg \
+    --description "Allow PostgreSQL from EKS" \
+    --vpc-id $VPC_ID \
+    --region $AWS_REGION \
+    --query 'GroupId' --output text)
+  echo "Created RDS Security Group: $RDS_SG"
+else
+  echo "Using existing RDS Security Group: $RDS_SG"
+fi
 
 # Get EKS cluster security group
 EKS_SG=$(aws eks describe-cluster --name $CLUSTER_NAME --region $AWS_REGION \
   --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' --output text)
 
-# Allow inbound PostgreSQL from EKS
+# Allow inbound PostgreSQL from EKS (idempotent - ignores if rule exists)
 aws ec2 authorize-security-group-ingress \
   --group-id $RDS_SG \
   --protocol tcp \
   --port 5432 \
   --source-group $EKS_SG \
-  --region $AWS_REGION
+  --region $AWS_REGION 2>/dev/null || echo "Ingress rule already exists"
+
+# Save to env file (avoid duplicates)
+grep -q "VPC_ID" coder-infra.env || echo "export VPC_ID=$VPC_ID" >> coder-infra.env
+grep -q "RDS_SG" coder-infra.env || echo "export RDS_SG=$RDS_SG" >> coder-infra.env
+grep -q "EKS_SG" coder-infra.env || echo "export EKS_SG=$EKS_SG" >> coder-infra.env
 
 echo "RDS Security Group: $RDS_SG"
 ```
@@ -130,6 +164,8 @@ Create three node groups per the [architecture](../architecture/diagrams.md):
 ### coder-system (coderd)
 
 ```bash
+source coder-infra.env
+
 eksctl create nodegroup \
   --cluster $CLUSTER_NAME \
   --region $AWS_REGION \
@@ -145,6 +181,8 @@ eksctl create nodegroup \
 ### coder-prov (provisioners)
 
 ```bash
+source coder-infra.env
+
 eksctl create nodegroup \
   --cluster $CLUSTER_NAME \
   --region $AWS_REGION \
@@ -160,6 +198,8 @@ eksctl create nodegroup \
 ### coder-ws (workspaces)
 
 ```bash
+source coder-infra.env
+
 eksctl create nodegroup \
   --cluster $CLUSTER_NAME \
   --region $AWS_REGION \
@@ -184,6 +224,8 @@ kubectl get nodes -L coder.com/node-type
 ### Create DB Subnet Group
 
 ```bash
+source coder-infra.env
+
 # Get private subnet IDs (eksctl tags them with 'Private')
 PRIVATE_SUBNETS=$(aws ec2 describe-subnets \
   --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=*Private*" \
@@ -198,19 +240,25 @@ aws rds create-db-subnet-group \
 ### Store Password in Secrets Manager
 
 ```bash
+source coder-infra.env
+
 DB_PASSWORD=$(openssl rand -base64 24)
 
 aws secretsmanager create-secret \
   --name coder/database-password \
   --secret-string "$DB_PASSWORD" \
+  --region $AWS_REGION \
   --description "Coder RDS PostgreSQL password"
 ```
 
 ### Create Database
 
 ```bash
+source coder-infra.env
+
 aws rds create-db-instance \
   --db-instance-identifier coder-db \
+  --region $AWS_REGION \
   --db-instance-class db.m7i.large \
   --engine postgres \
   --engine-version 15 \
@@ -230,15 +278,24 @@ aws rds create-db-instance \
 Wait for the database to be available (~10-15 minutes):
 
 ```bash
-aws rds wait db-instance-available --db-instance-identifier coder-db
+source coder-infra.env
+
+aws rds wait db-instance-available --db-instance-identifier coder-db --region $AWS_REGION
 ```
 
 Get the endpoint:
 
 ```bash
+source coder-infra.env
+
 RDS_ENDPOINT=$(aws rds describe-db-instances \
   --db-instance-identifier coder-db \
+  --region $AWS_REGION \
   --query 'DBInstances[0].Endpoint.Address' --output text)
+
+# Save to env file
+echo "export RDS_ENDPOINT=$RDS_ENDPOINT" >> coder-infra.env
+
 echo "RDS Endpoint: $RDS_ENDPOINT"
 ```
 
@@ -247,34 +304,33 @@ echo "RDS Endpoint: $RDS_ENDPOINT"
 Request a certificate for your domain:
 
 ```bash
-export CODER_DOMAIN=coder.example.com
+source coder-infra.env
 
 CERT_ARN=$(aws acm request-certificate \
   --domain-name $CODER_DOMAIN \
+  --region $AWS_REGION \
   --validation-method DNS \
   --query 'CertificateArn' --output text)
+
+# Save to env file
+echo "export CERT_ARN=$CERT_ARN" >> coder-infra.env
 
 echo "Certificate ARN: $CERT_ARN"
 ```
 
 ### DNS Validation
 
-Get the validation record:
+Get the validation record and create it in Route 53:
 
 ```bash
-aws acm describe-certificate --certificate-arn $CERT_ARN \
-  --query 'Certificate.DomainValidationOptions[0].ResourceRecord'
-```
+source coder-infra.env
 
-Create the validation record in Route 53:
-
-```bash
 HOSTED_ZONE_ID=$(aws route53 list-hosted-zones-by-name \
-  --dns-name $CODER_DOMAIN \
+  --dns-name $(echo $CODER_DOMAIN | cut -d. -f2-) \
   --query 'HostedZones[0].Id' --output text | cut -d'/' -f3)
 
 # Get validation record details
-VALIDATION=$(aws acm describe-certificate --certificate-arn $CERT_ARN \
+VALIDATION=$(aws acm describe-certificate --certificate-arn $CERT_ARN --region $AWS_REGION \
   --query 'Certificate.DomainValidationOptions[0].ResourceRecord')
 RECORD_NAME=$(echo $VALIDATION | jq -r '.Name')
 RECORD_VALUE=$(echo $VALIDATION | jq -r '.Value')
@@ -295,7 +351,9 @@ aws route53 change-resource-record-sets --hosted-zone-id $HOSTED_ZONE_ID --chang
 Wait for validation (~2-5 minutes):
 
 ```bash
-aws acm wait certificate-validated --certificate-arn $CERT_ARN
+source coder-infra.env
+
+aws acm wait certificate-validated --certificate-arn $CERT_ARN --region $AWS_REGION
 echo "Certificate validated"
 ```
 
@@ -304,15 +362,17 @@ echo "Certificate validated"
 Confirm all resources are ready:
 
 ```bash
+source coder-infra.env
+
 # EKS cluster
 kubectl get nodes
 
 # RDS
-aws rds describe-db-instances --db-instance-identifier coder-db \
+aws rds describe-db-instances --db-instance-identifier coder-db --region $AWS_REGION \
   --query 'DBInstances[0].DBInstanceStatus'
 
 # ACM certificate
-aws acm describe-certificate --certificate-arn $CERT_ARN \
+aws acm describe-certificate --certificate-arn $CERT_ARN --region $AWS_REGION \
   --query 'Certificate.Status'
 ```
 
@@ -323,22 +383,20 @@ Expected output:
 
 ## Environment Variables Summary
 
-Save these for the next step:
+All variables have been saved to `coder-infra.env`. View contents:
 
 ```bash
-cat <<EOF
-CLUSTER_NAME=$CLUSTER_NAME
-RDS_ENDPOINT=$RDS_ENDPOINT
-CERT_ARN=$CERT_ARN
-CODER_DOMAIN=$CODER_DOMAIN
-EOF
+cat coder-infra.env
 ```
 
-To retrieve the database password later:
+To retrieve the database password:
 
 ```bash
+source coder-infra.env
+
 aws secretsmanager get-secret-value \
   --secret-id coder/database-password \
+  --region $AWS_REGION \
   --query 'SecretString' --output text
 ```
 
