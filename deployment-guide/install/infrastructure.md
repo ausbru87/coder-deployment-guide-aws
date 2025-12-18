@@ -255,9 +255,117 @@ RDS_ENDPOINT=$(aws rds describe-db-instances \
   --query 'DBInstances[0].Endpoint.Address' --output text)
 
 # Save to env file
-echo "export RDS_ENDPOINT=$RDS_ENDPOINT" >> coder-infra.env
+grep -q "RDS_ENDPOINT" coder-infra.env || echo "export RDS_ENDPOINT=$RDS_ENDPOINT" >> coder-infra.env
 
 echo "RDS Endpoint: $RDS_ENDPOINT"
+```
+
+### Store Database URL in Secrets Manager
+
+Create the full connection URL for Coder:
+
+```bash
+source coder-infra.env
+
+DB_PASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id coder/database-password \
+  --region $AWS_REGION \
+  --query 'SecretString' --output text)
+
+DB_URL="postgres://coder:${DB_PASSWORD}@${RDS_ENDPOINT}:5432/coder?sslmode=require"
+
+# Create secret (or skip if exists)
+if ! aws secretsmanager describe-secret --secret-id coder/database-url --region $AWS_REGION &>/dev/null; then
+  aws secretsmanager create-secret \
+    --name coder/database-url \
+    --secret-string "$DB_URL" \
+    --region $AWS_REGION \
+    --description "Coder PostgreSQL connection URL"
+  echo "Created database URL secret"
+else
+  echo "Database URL secret already exists"
+fi
+```
+
+### Create IAM Role for Coder Secrets Access
+
+Create an IAM role with Pod Identity for Coder to access Secrets Manager:
+
+```bash
+source coder-infra.env
+
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+# Create IAM policy (or skip if exists)
+if ! aws iam get-policy --policy-arn arn:aws:iam::${ACCOUNT_ID}:policy/CoderSecretsAccess &>/dev/null; then
+  cat <<EOF > /tmp/coder-secrets-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": [
+      "secretsmanager:GetSecretValue",
+      "secretsmanager:DescribeSecret"
+    ],
+    "Resource": "arn:aws:secretsmanager:${AWS_REGION}:${ACCOUNT_ID}:secret:coder/*"
+  }]
+}
+EOF
+
+  aws iam create-policy \
+    --policy-name CoderSecretsAccess \
+    --policy-document file:///tmp/coder-secrets-policy.json
+  echo "Created IAM policy"
+else
+  echo "IAM policy already exists"
+fi
+
+# Create IAM role for Pod Identity (or skip if exists)
+if ! aws iam get-role --role-name CoderSecretsRole &>/dev/null; then
+  cat <<EOF > /tmp/coder-trust-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Service": "pods.eks.amazonaws.com"
+    },
+    "Action": ["sts:AssumeRole", "sts:TagSession"]
+  }]
+}
+EOF
+
+  aws iam create-role \
+    --role-name CoderSecretsRole \
+    --assume-role-policy-document file:///tmp/coder-trust-policy.json
+
+  aws iam attach-role-policy \
+    --role-name CoderSecretsRole \
+    --policy-arn arn:aws:iam::${ACCOUNT_ID}:policy/CoderSecretsAccess
+  echo "Created IAM role"
+else
+  echo "IAM role already exists"
+fi
+
+# Create Pod Identity association (or skip if exists)
+EXISTING_ASSOC=$(aws eks list-pod-identity-associations \
+  --cluster-name $CLUSTER_NAME \
+  --namespace coder \
+  --service-account coder \
+  --region $AWS_REGION \
+  --query 'associations[0].associationId' --output text 2>/dev/null)
+
+if [ -z "$EXISTING_ASSOC" ] || [ "$EXISTING_ASSOC" = "None" ]; then
+  aws eks create-pod-identity-association \
+    --cluster-name $CLUSTER_NAME \
+    --namespace coder \
+    --service-account coder \
+    --role-arn arn:aws:iam::${ACCOUNT_ID}:role/CoderSecretsRole \
+    --region $AWS_REGION
+  echo "Created Pod Identity association"
+else
+  echo "Pod Identity association already exists"
+fi
 ```
 
 ## EKS Node Groups
