@@ -327,21 +327,31 @@ kubectl get nodes -L coder.com/node-type
 
 ## ACM Certificate
 
+> [!NOTE]
+> ACM certificates auto-renew. No cert-manager needed for MVP.
+
 Request a certificate for your domain:
 
 ```bash
 source coder-infra.env
 
-CERT_ARN=$(aws acm request-certificate \
-  --domain-name $CODER_DOMAIN \
-  --region $AWS_REGION \
-  --validation-method DNS \
-  --query 'CertificateArn' --output text)
+# Check for existing certificate
+CERT_ARN=$(aws acm list-certificates --region $AWS_REGION \
+  --query "CertificateSummaryList[?DomainName=='$CODER_DOMAIN'].CertificateArn" --output text)
 
-# Save to env file
-echo "export CERT_ARN=$CERT_ARN" >> coder-infra.env
+if [ -z "$CERT_ARN" ] || [ "$CERT_ARN" = "None" ]; then
+  CERT_ARN=$(aws acm request-certificate \
+    --domain-name $CODER_DOMAIN \
+    --region $AWS_REGION \
+    --validation-method DNS \
+    --query 'CertificateArn' --output text)
+  echo "Requested new certificate: $CERT_ARN"
+else
+  echo "Using existing certificate: $CERT_ARN"
+fi
 
-echo "Certificate ARN: $CERT_ARN"
+# Save to env file (avoid duplicates)
+grep -q "CERT_ARN" coder-infra.env || echo "export CERT_ARN=$CERT_ARN" >> coder-infra.env
 ```
 
 ### DNS Validation
@@ -351,27 +361,39 @@ Get the validation record and create it in Route 53:
 ```bash
 source coder-infra.env
 
-HOSTED_ZONE_ID=$(aws route53 list-hosted-zones-by-name \
-  --dns-name $(echo $CODER_DOMAIN | cut -d. -f2-) \
-  --query 'HostedZones[0].Id' --output text | cut -d'/' -f3)
+# Check if already validated
+CERT_STATUS=$(aws acm describe-certificate --certificate-arn $CERT_ARN --region $AWS_REGION \
+  --query 'Certificate.Status' --output text)
 
-# Get validation record details
-VALIDATION=$(aws acm describe-certificate --certificate-arn $CERT_ARN --region $AWS_REGION \
-  --query 'Certificate.DomainValidationOptions[0].ResourceRecord')
-RECORD_NAME=$(echo $VALIDATION | jq -r '.Name')
-RECORD_VALUE=$(echo $VALIDATION | jq -r '.Value')
+if [ "$CERT_STATUS" = "ISSUED" ]; then
+  echo "Certificate already validated"
+else
+  # Get hosted zone for base domain
+  BASE_DOMAIN=$(echo $CODER_DOMAIN | cut -d. -f2-)
+  HOSTED_ZONE_ID=$(aws route53 list-hosted-zones-by-name \
+    --dns-name $BASE_DOMAIN \
+    --query 'HostedZones[0].Id' --output text | cut -d'/' -f3)
 
-aws route53 change-resource-record-sets --hosted-zone-id $HOSTED_ZONE_ID --change-batch '{
-  "Changes": [{
-    "Action": "UPSERT",
-    "ResourceRecordSet": {
-      "Name": "'$RECORD_NAME'",
-      "Type": "CNAME",
-      "TTL": 300,
-      "ResourceRecords": [{"Value": "'$RECORD_VALUE'"}]
-    }
-  }]
-}'
+  # Get validation record details
+  VALIDATION=$(aws acm describe-certificate --certificate-arn $CERT_ARN --region $AWS_REGION \
+    --query 'Certificate.DomainValidationOptions[0].ResourceRecord')
+  RECORD_NAME=$(echo $VALIDATION | jq -r '.Name')
+  RECORD_VALUE=$(echo $VALIDATION | jq -r '.Value')
+
+  # Create/update validation record (UPSERT is idempotent)
+  aws route53 change-resource-record-sets --hosted-zone-id $HOSTED_ZONE_ID --change-batch '{
+    "Changes": [{
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "'$RECORD_NAME'",
+        "Type": "CNAME",
+        "TTL": 300,
+        "ResourceRecords": [{"Value": "'$RECORD_VALUE'"}]
+      }
+    }]
+  }'
+  echo "Created validation record"
+fi
 ```
 
 Wait for validation (~2-5 minutes):
