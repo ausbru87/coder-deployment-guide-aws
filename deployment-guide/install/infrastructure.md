@@ -412,22 +412,26 @@ Confirm all resources are ready:
 ```bash
 source coder-infra.env
 
-# EKS cluster
-kubectl get nodes
+# 1. EKS Nodes (should show 6 nodes across 3 groups)
+kubectl get nodes -L coder.com/node-type
 
-# RDS
+# 2. RDS (should show "available")
 aws rds describe-db-instances --db-instance-identifier coder-db --region $AWS_REGION \
-  --query 'DBInstances[0].DBInstanceStatus'
+  --query 'DBInstances[0].DBInstanceStatus' --output text
 
-# ACM certificate
+# 3. ACM (should show "ISSUED")
 aws acm describe-certificate --certificate-arn $CERT_ARN --region $AWS_REGION \
-  --query 'Certificate.Status'
+  --query 'Certificate.Status' --output text
+
+# 4. Env file has all variables
+cat coder-infra.env
 ```
 
 Expected output:
-- Nodes: `Ready` status
+- Nodes: 6 nodes with `Ready` status (2 system, 2 provisioner, 2 workspace)
 - RDS: `available`
 - ACM: `ISSUED`
+- Env file contains: `AWS_REGION`, `CLUSTER_NAME`, `CODER_DOMAIN`, `VPC_ID`, `RDS_SG`, `EKS_SG`, `RDS_ENDPOINT`, `CERT_ARN`
 
 ## Environment Variables Summary
 
