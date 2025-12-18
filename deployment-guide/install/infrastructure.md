@@ -78,11 +78,8 @@ Verify:
 # Verify VPC created
 aws ec2 describe-vpcs --filters "Name=tag:eksctl.cluster.k8s.io/v1alpha1/cluster-name,Values=$CLUSTER_NAME"
 
-# Verify pod identity agent is running
-kubectl get pods -n kube-system -l app.kubernetes.io/name=eks-pod-identity-agent
-
-# Verify vpc-cni pods are healthy
-kubectl get pods -n kube-system -l k8s-app=aws-node
+# Verify addons are installed (pods won't run until node groups are created)
+aws eks list-addons --cluster-name $CLUSTER_NAME --region $AWS_REGION
 ```
 
 ## Security Groups
@@ -93,26 +90,37 @@ Create a security group for RDS that allows PostgreSQL from EKS nodes:
 
 ```bash
 # Get VPC ID
-VPC_ID=$(aws eks describe-cluster --name $CLUSTER_NAME --query 'cluster.resourcesVpcConfig.vpcId' --output text)
+VPC_ID=$(aws eks describe-cluster --name $CLUSTER_NAME --region $AWS_REGION \
+  --query 'cluster.resourcesVpcConfig.vpcId' --output text)
 
 # Create RDS security group
 RDS_SG=$(aws ec2 create-security-group \
   --group-name coder-rds-sg \
   --description "Allow PostgreSQL from EKS" \
   --vpc-id $VPC_ID \
+  --region $AWS_REGION \
   --query 'GroupId' --output text)
 
 # Get EKS cluster security group
-EKS_SG=$(aws eks describe-cluster --name $CLUSTER_NAME --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' --output text)
+EKS_SG=$(aws eks describe-cluster --name $CLUSTER_NAME --region $AWS_REGION \
+  --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' --output text)
 
 # Allow inbound PostgreSQL from EKS
 aws ec2 authorize-security-group-ingress \
   --group-id $RDS_SG \
   --protocol tcp \
   --port 5432 \
-  --source-group $EKS_SG
+  --source-group $EKS_SG \
+  --region $AWS_REGION
 
 echo "RDS Security Group: $RDS_SG"
+```
+
+Verify:
+
+```bash
+aws ec2 describe-security-groups --group-ids $RDS_SG --region $AWS_REGION \
+  --query 'SecurityGroups[0].IpPermissions'
 ```
 
 ## EKS Node Groups
