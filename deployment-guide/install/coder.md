@@ -96,6 +96,10 @@ helm repo add coder-v2 https://helm.coder.com/v2
 helm repo update
 ```
 
+> [!NOTE]
+> This guide uses **GitHub OAuth** for authentication for simplicity. Coder supports many other identity providers including Okta, Azure AD, and any OIDC-compliant provider.
+> See [Coder OIDC documentation](https://coder.com/docs/admin/users/oidc-auth) for alternatives.
+
 Create a `values.yaml` file:
 
 ```bash
