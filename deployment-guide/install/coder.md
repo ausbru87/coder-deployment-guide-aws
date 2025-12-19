@@ -58,7 +58,7 @@ cat <<EOF | kubectl apply -f -
 apiVersion: secrets-store.csi.x-k8s.io/v1
 kind: SecretProviderClass
 metadata:
-  name: coder-db-secret
+  name: coder-secrets
   namespace: coder
 spec:
   provider: aws
@@ -67,11 +67,11 @@ spec:
       - objectName: "coder/database-url"
         objectType: "secretsmanager"
   secretObjects:
-  - secretName: coder-db-url
+  - secretName: coder-secrets
     type: Opaque
     data:
     - objectName: "coder/database-url"
-      key: url
+      key: db-url
 EOF
 ```
 
@@ -135,11 +135,13 @@ coder:
   
   # -- Environment variables
   env:
+    # Database
     - name: CODER_PG_CONNECTION_URL
       valueFrom:
         secretKeyRef:
-          name: coder-db-url
-          key: url
+          name: coder-secrets
+          key: db-url
+    # Access URLs
     - name: CODER_ACCESS_URL
       value: "https://${CODER_DOMAIN}"
     - name: CODER_WILDCARD_ACCESS_URL
@@ -150,6 +152,10 @@ coder:
     # Logging
     - name: CODER_VERBOSE
       value: "false"
+    # Disable built-in provisioners (external only)
+    - name: CODER_PROVISIONER_DAEMONS
+      value: "0"
+    # Authentication - see "Configure Authentication" section below
   
   # -- Service configuration
   service:
@@ -164,14 +170,14 @@ coder:
       service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
       service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"
   
-  # -- Secrets Store CSI volume for database credentials
+  # -- Secrets Store CSI volume for credentials
   volumes:
     - name: secrets-store
       csi:
         driver: secrets-store.csi.k8s.io
         readOnly: true
         volumeAttributes:
-          secretProviderClass: coder-db-secret
+          secretProviderClass: coder-secrets
   volumeMounts:
     - name: secrets-store
       mountPath: "/mnt/secrets"
@@ -312,12 +318,12 @@ source coder-infra.env
 # Store GitHub OAuth credentials
 aws secretsmanager create-secret \
   --name coder/github-client-id \
-  --secret-string "your-client-id" \
+  --secret-string "$GH_CLIENTID" \
   --region $AWS_REGION
 
 aws secretsmanager create-secret \
   --name coder/github-client-secret \
-  --secret-string "your-client-secret" \
+  --secret-string "$GH_SECRET" \
   --region $AWS_REGION
 ```
 
