@@ -150,11 +150,6 @@ coder:
     # Logging
     - name: CODER_VERBOSE
       value: "false"
-    # Authentication: Configure OIDC before or after initial install.
-    # See prerequisites: ../prerequisites/index.md#authentication
-    # Required env vars: CODER_OIDC_ISSUER_URL, CODER_OIDC_CLIENT_ID, CODER_OIDC_CLIENT_SECRET
-    # Option 1: Add secrets to AWS Secrets Manager, reference via CSI driver
-    # Option 2: Run 'helm upgrade' after initial setup with OIDC env vars
   
   # -- Service configuration
   service:
@@ -293,6 +288,101 @@ Expected output:
 ## Create First User
 
 Open `https://<your-coder-domain>` in a browser to create the first admin user.
+
+## Configure Authentication (GitHub OAuth)
+
+> [!NOTE]
+> You can skip this section for initial testing. Coder provides a default GitHub app for convenience.
+> For production, configure your own OAuth app to avoid sharing data with Coder (the company).
+
+See [Coder GitHub Auth docs](https://coder.com/docs/admin/users/github-auth) for full details.
+
+### 1. Create GitHub OAuth App
+
+1. Go to GitHub → Settings → Developer settings → OAuth Apps → New OAuth App
+2. Set **Homepage URL** to `https://${CODER_DOMAIN}`
+3. Set **Authorization callback URL** to `https://${CODER_DOMAIN}`
+4. Note the **Client ID** and generate a **Client Secret**
+
+### 2. Store Credentials in Secrets Manager
+
+```bash
+source coder-infra.env
+
+# Store GitHub OAuth credentials
+aws secretsmanager create-secret \
+  --name coder/github-client-id \
+  --secret-string "your-client-id" \
+  --region $AWS_REGION
+
+aws secretsmanager create-secret \
+  --name coder/github-client-secret \
+  --secret-string "your-client-secret" \
+  --region $AWS_REGION
+```
+
+### 3. Update SecretProviderClass
+
+Update the SecretProviderClass to include GitHub credentials:
+
+```bash
+cat <<EOF | kubectl apply -f -
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: coder-secrets
+  namespace: coder
+spec:
+  provider: aws
+  parameters:
+    objects: |
+      - objectName: "coder/database-url"
+        objectType: "secretsmanager"
+      - objectName: "coder/github-client-id"
+        objectType: "secretsmanager"
+      - objectName: "coder/github-client-secret"
+        objectType: "secretsmanager"
+  secretObjects:
+  - secretName: coder-secrets
+    type: Opaque
+    data:
+    - objectName: "coder/database-url"
+      key: db-url
+    - objectName: "coder/github-client-id"
+      key: github-client-id
+    - objectName: "coder/github-client-secret"
+      key: github-client-secret
+EOF
+```
+
+### 4. Add Environment Variables to values.yaml
+
+Add these to your `values.yaml` env section:
+
+```yaml
+    - name: CODER_OAUTH2_GITHUB_ALLOW_SIGNUPS
+      value: "true"
+    - name: CODER_OAUTH2_GITHUB_ALLOWED_ORGS
+      value: "your-github-org"
+    - name: CODER_OAUTH2_GITHUB_CLIENT_ID
+      valueFrom:
+        secretKeyRef:
+          name: coder-secrets
+          key: github-client-id
+    - name: CODER_OAUTH2_GITHUB_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: coder-secrets
+          key: github-client-secret
+```
+
+### 5. Upgrade Coder
+
+```bash
+helm upgrade coder coder-v2/coder \
+  --namespace coder \
+  --values values.yaml
+```
 
 ## Workspace Node Scheduling
 
