@@ -108,11 +108,11 @@ coder:
   
   # -- Schedule coderd on coder-system nodes (tainted)
   nodeSelector:
-    coder/node-type: system
+    coder/node-type: coderd
   tolerations:
     - key: "coder/node-type"
       operator: "Equal"
-      value: "system"
+      value: "coderd"
       effect: "NoSchedule"
   
   # -- Resource requests/limits for coderd

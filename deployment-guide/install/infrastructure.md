@@ -389,8 +389,8 @@ eksctl create nodegroup \
   --nodes-min 2 \
   --nodes-max 2 \
   --node-private-networking \
-  --node-labels "coder/node-type=system" \
-  --node-taints "coder/node-type=system:NoSchedule"
+  --node-labels "coder/node-type=coderd" \
+  --node-taints "coder/node-type=coderd:NoSchedule"
 ```
 
 ### coder-prov (provisioners)
