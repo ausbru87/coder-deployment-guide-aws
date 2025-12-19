@@ -347,25 +347,26 @@ else
   echo "IAM role already exists"
 fi
 
-# Create coder namespace (required for Pod Identity association)
+# Create namespaces (required for Pod Identity associations)
 kubectl create namespace coder --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
 
-# Create Pod Identity association (or skip if exists)
+# Create Pod Identity association for External Secrets Operator
 EXISTING_ASSOC=$(aws eks list-pod-identity-associations \
   --cluster-name $CLUSTER_NAME \
-  --namespace coder \
-  --service-account coder \
+  --namespace external-secrets \
+  --service-account external-secrets \
   --region $AWS_REGION \
   --query 'associations[0].associationId' --output text 2>/dev/null)
 
 if [ -z "$EXISTING_ASSOC" ] || [ "$EXISTING_ASSOC" = "None" ]; then
   aws eks create-pod-identity-association \
     --cluster-name $CLUSTER_NAME \
-    --namespace coder \
-    --service-account coder \
+    --namespace external-secrets \
+    --service-account external-secrets \
     --role-arn arn:aws:iam::${ACCOUNT_ID}:role/CoderSecretsRole \
     --region $AWS_REGION
-  echo "Created Pod Identity association"
+  echo "Created Pod Identity association for external-secrets"
 else
   echo "Pod Identity association already exists"
 fi
