@@ -389,8 +389,13 @@ eksctl create nodegroup \
   --nodes-min 2 \
   --nodes-max 2 \
   --node-private-networking \
-  --node-labels "coder/node-type=coderd" \
-  --node-taints "coder/node-type=coderd:NoSchedule"
+  --node-labels "coder/node-type=coderd"
+```
+
+Taint the nodes to only allow coderd workloads:
+
+```bash
+kubectl taint nodes -l coder/node-type=coderd coder/node-type=coderd:NoSchedule
 ```
 
 ### coder-prov (provisioners)
