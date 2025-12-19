@@ -150,6 +150,11 @@ coder:
     # Logging
     - name: CODER_VERBOSE
       value: "false"
+    # Authentication: Configure OIDC before or after initial install.
+    # See prerequisites: ../prerequisites/index.md#authentication
+    # Required env vars: CODER_OIDC_ISSUER_URL, CODER_OIDC_CLIENT_ID, CODER_OIDC_CLIENT_SECRET
+    # Option 1: Add secrets to AWS Secrets Manager, reference via CSI driver
+    # Option 2: Run 'helm upgrade' after initial setup with OIDC env vars
   
   # -- Service configuration
   service:
