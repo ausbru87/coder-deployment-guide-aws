@@ -387,6 +387,8 @@ spec:
         objectType: "secretsmanager"
       - objectName: "coder/github-client-secret"
         objectType: "secretsmanager"
+      - objectName: "coder/github-allowed-orgs"
+        objectType: "secretsmanager"
   secretObjects:
   - secretName: coder-secrets
     type: Opaque
@@ -397,6 +399,8 @@ spec:
       key: github-client-id
     - objectName: "coder/github-client-secret"
       key: github-client-secret
+    - objectName: "coder/github-allowed-orgs"
+      key: github-allowed-orgs
 EOF
 ```
 
