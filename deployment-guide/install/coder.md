@@ -49,7 +49,7 @@ kubectl get pods -n kube-system -l app=csi-secrets-store-provider-aws
 
 ## Create SecretProviderClass
 
-Create the SecretProviderClass to sync the database URL from Secrets Manager:
+Create the SecretProviderClass to sync secrets from AWS Secrets Manager:
 
 ```bash
 source coder-infra.env
@@ -66,12 +66,24 @@ spec:
     objects: |
       - objectName: "coder/database-url"
         objectType: "secretsmanager"
+      - objectName: "coder/github-client-id"
+        objectType: "secretsmanager"
+      - objectName: "coder/github-client-secret"
+        objectType: "secretsmanager"
+      - objectName: "coder/github-allowed-orgs"
+        objectType: "secretsmanager"
   secretObjects:
   - secretName: coder-secrets
     type: Opaque
     data:
     - objectName: "coder/database-url"
       key: db-url
+    - objectName: "coder/github-client-id"
+      key: github-client-id
+    - objectName: "coder/github-client-secret"
+      key: github-client-secret
+    - objectName: "coder/github-allowed-orgs"
+      key: github-allowed-orgs
 EOF
 ```
 
@@ -155,7 +167,24 @@ coder:
     # Disable built-in provisioners (external only)
     - name: CODER_PROVISIONER_DAEMONS
       value: "0"
-    # Authentication - see "Configure Authentication" section below
+    # GitHub OAuth - see "Configure Authentication" section below
+    - name: CODER_OAUTH2_GITHUB_ALLOW_SIGNUPS
+      value: "true"
+    - name: CODER_OAUTH2_GITHUB_ALLOWED_ORGS
+      valueFrom:
+        secretKeyRef:
+          name: coder-secrets
+          key: github-allowed-orgs
+    - name: CODER_OAUTH2_GITHUB_CLIENT_ID
+      valueFrom:
+        secretKeyRef:
+          name: coder-secrets
+          key: github-client-id
+    - name: CODER_OAUTH2_GITHUB_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: coder-secrets
+          key: github-client-secret
   
   # -- Service configuration
   service:
