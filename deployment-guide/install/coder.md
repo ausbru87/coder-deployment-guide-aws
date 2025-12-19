@@ -344,15 +344,25 @@ See [Coder GitHub Auth docs](https://coder.com/docs/admin/users/github-auth) for
 ```bash
 source coder-infra.env
 
+# Set your GitHub OAuth credentials
+export GH_ORG="your-github-org"
+export GH_CLIENT_ID="your-client-id"
+export GH_CLIENT_SECRET="your-client-secret"
+
 # Store GitHub OAuth credentials
 aws secretsmanager create-secret \
+  --name coder/github-allowed-orgs \
+  --secret-string "$GH_ORG" \
+  --region $AWS_REGION
+
+aws secretsmanager create-secret \
   --name coder/github-client-id \
-  --secret-string "$GH_CLIENTID" \
+  --secret-string "$GH_CLIENT_ID" \
   --region $AWS_REGION
 
 aws secretsmanager create-secret \
   --name coder/github-client-secret \
-  --secret-string "$GH_SECRET" \
+  --secret-string "$GH_CLIENT_SECRET" \
   --region $AWS_REGION
 ```
 
