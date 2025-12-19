@@ -347,6 +347,9 @@ else
   echo "IAM role already exists"
 fi
 
+# Create coder namespace (required for Pod Identity association)
+kubectl create namespace coder --dry-run=client -o yaml | kubectl apply -f -
+
 # Create Pod Identity association (or skip if exists)
 EXISTING_ASSOC=$(aws eks list-pod-identity-associations \
   --cluster-name $CLUSTER_NAME \

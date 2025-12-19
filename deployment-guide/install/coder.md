@@ -17,13 +17,10 @@ The installation process consists of:
 5. Configuring DNS
 6. Verifying the installation
 
-## Create Namespace
-
-```bash
-kubectl create namespace coder
-```
-
 ## Install Secrets Store CSI Driver
+
+> [!NOTE]
+> The `coder` namespace was created in [infrastructure.md](infrastructure.md) during Pod Identity setup.
 
 Install the CSI driver to sync secrets from AWS Secrets Manager:
 
@@ -105,7 +102,7 @@ Create a `values.yaml` file:
 ```bash
 source coder-infra.env
 
-cat <<EOF > values.yaml
+cat <<EOF > coder-values.yaml
 coder:
   # -- Service account configuration
   serviceAccount:
@@ -231,7 +228,7 @@ coder:
           topologyKey: kubernetes.io/hostname
 EOF
 
-cat values.yaml
+cat coder-values.yaml
 ```
 
 Install Coder:
@@ -239,7 +236,7 @@ Install Coder:
 ```bash
 helm install coder coder-v2/coder \
   --namespace coder \
-  --values values.yaml
+  --values coder-values.yaml
 ```
 
 Create a PodDisruptionBudget to prevent eviction storms during node drains/upgrades:
@@ -264,10 +261,13 @@ EOF
 Get the NLB hostname and create a DNS record:
 
 ```bash
-source coder-infra.env
-
 # Wait for load balancer to be provisioned
 kubectl get svc coder -n coder -w
+```
+
+
+```bash
+source coder-infra.env
 
 # Get the NLB hostname
 NLB_HOSTNAME=$(kubectl get svc coder -n coder \
