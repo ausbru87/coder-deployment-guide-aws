@@ -373,9 +373,11 @@ fi
 > [!TIP]
 > Start RDS creation above, then run node groups in parallel while RDS provisions (~10-15 min).
 
-Create three node groups per the [architecture](../architecture/diagrams.md):
+Create four node groups per the [architecture](../architecture/diagrams.md):
 
-### coder-system (coderd)
+### system (Kubernetes system components)
+
+Small nodes for K8s system components (CoreDNS, kube-proxy, etc.). No taints—runs default workloads.
 
 ```bash
 source coder-infra.env
@@ -383,7 +385,25 @@ source coder-infra.env
 eksctl create nodegroup \
   --cluster $CLUSTER_NAME \
   --region $AWS_REGION \
-  --name coder-system \
+  --name system \
+  --node-type t3.medium \
+  --nodes 3 \
+  --nodes-min 3 \
+  --nodes-max 3 \
+  --node-private-networking
+```
+
+### coder-coderd (Coder control plane)
+
+Dedicated nodes for coderd replicas. Tainted to prevent other workloads.
+
+```bash
+source coder-infra.env
+
+eksctl create nodegroup \
+  --cluster $CLUSTER_NAME \
+  --region $AWS_REGION \
+  --name coder-coderd \
   --node-type m7i.large \
   --nodes 2 \
   --nodes-min 2 \
@@ -398,7 +418,9 @@ Taint the nodes to only allow coderd workloads:
 kubectl taint nodes -l coder/node-type=coderd coder/node-type=coderd:NoSchedule
 ```
 
-### coder-prov (provisioners)
+### coder-provisioner (external provisioners)
+
+Dedicated nodes for Coder provisioner workloads. Tainted to isolate provisioning jobs.
 
 ```bash
 source coder-infra.env
@@ -406,7 +428,7 @@ source coder-infra.env
 eksctl create nodegroup \
   --cluster $CLUSTER_NAME \
   --region $AWS_REGION \
-  --name coder-prov \
+  --name coder-provisioner \
   --node-type c7i.2xlarge \
   --nodes 1 \
   --nodes-min 1 \
@@ -415,7 +437,15 @@ eksctl create nodegroup \
   --node-labels "coder/node-type=provisioner"
 ```
 
-### coder-ws (workspaces)
+Taint the nodes to only allow provisioner workloads:
+
+```bash
+kubectl taint nodes -l coder/node-type=provisioner coder/node-type=provisioner:NoSchedule
+```
+
+### coder-workspace (workspaces)
+
+Dedicated nodes for developer workspaces. Tainted to isolate workspace pods.
 
 ```bash
 source coder-infra.env
@@ -423,13 +453,19 @@ source coder-infra.env
 eksctl create nodegroup \
   --cluster $CLUSTER_NAME \
   --region $AWS_REGION \
-  --name coder-ws \
+  --name coder-workspace \
   --node-type m7i.12xlarge \
   --nodes 2 \
   --nodes-min 2 \
   --nodes-max 20 \
   --node-private-networking \
   --node-labels "coder/node-type=workspace"
+```
+
+Taint the nodes to isolate workspace workloads:
+
+```bash
+kubectl taint nodes -l coder/node-type=workspace coder/node-type=workspace:NoSchedule
 ```
 
 ### Verify

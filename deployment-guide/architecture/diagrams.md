@@ -36,11 +36,11 @@ This document provides architectural diagrams for the Coder platform deployment 
 │  │   ┌─────────────────────────────────────────────────────────────────────┐ │ │
 │  │   │                          EKS Cluster                                 │ │ │
 │  │   │                                                                      │ │ │
-│  │   │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐           │ │ │
-│  │   │  │ coder-system  │  │  coder-prov   │  │   coder-ws    │           │ │ │
-│  │   │  │   (coderd)    │  │ (provisioners)│  │ (workspaces)  │           │ │ │
-│  │   │  │  m7i.large x2  │  │ c7i.2xlarge x2 │  │ m7i.12xlarge x20 │          │ │ │
-│  │   │  └───────────────┘  └───────────────┘  └───────────────┘           │ │ │
+│  │   │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ │ │ │
+│  │   │  │   system    │ │coder-coderd │ │coder-prov   │ │ coder-ws    │ │ │ │
+│  │   │  │ (k8s system)│ │  (coderd)   │ │(provisioner)│ │ (workspace) │ │ │ │
+│  │   │  │t3.medium x3 │ │m7i.large x2 │ │c7i.2xl x1-2 │ │m7i.12xl x20 │ │ │ │
+│  │   │  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘ │ │ │
 │  │   │                                                                      │ │ │
 │  │   └─────────────────────────────────────────────────────────────────────┘ │ │
 │  │                                                                            │ │
@@ -69,9 +69,10 @@ flowchart TB
             end
             
             subgraph EKS["EKS Cluster"]
-                system["coder-system<br/>m7i.large x2"]
-                prov["coder-prov<br/>c7i.2xlarge x2"]
-                ws["coder-ws<br/>m7i.12xlarge x20"]
+                sys["system<br/>t3.medium x3"]
+                coderd["coder-coderd<br/>m7i.large x2"]
+                prov["coder-provisioner<br/>c7i.2xlarge x1-2"]
+                ws["coder-workspace<br/>m7i.12xlarge x2-20"]
             end
             
             RDS["RDS PostgreSQL<br/>Writer (Multi-AZ)"]
@@ -271,15 +272,15 @@ flowchart TB
 │  │                   Multi-AZ | Encrypted | OIDC                              │ │
 │  └───────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                 │
-│  ┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐      │
-│  │   coder-system      │ │    coder-prov       │ │     coder-ws        │      │
-│  │                     │ │                     │ │                     │      │
-│  │  m7i.large           │ │  c7i.2xlarge         │ │  m7i.12xlarge         │      │
-│  │  Min: 2 / Max: 2    │ │  Min: 1 / Max: 2    │ │  Min: 2 / Max: 20   │      │
-│  │  Scaling: Static    │ │  Scaling: Time-based│ │  Scaling: Time+CA   │      │
-│  │                     │ │  (business hours)   │ │  (business hours)   │      │
-│  │  Taint: system      │ │  Label: provisioner │ │  Label: workspace   │      │
-│  └─────────────────────┘ └─────────────────────┘ └─────────────────────┘      │
+│  ┌───────────────┐ ┌───────────────┐ ┌───────────────┐ ┌───────────────┐    │
+│  │    system     │ │ coder-coderd  │ │coder-provision│ │coder-workspace│    │
+│  │               │ │               │ │               │ │               │    │
+│  │  t3.medium    │ │  m7i.large    │ │  c7i.2xlarge  │ │ m7i.12xlarge  │    │
+│  │  Min:3/Max:3  │ │  Min:2/Max:2  │ │  Min:1/Max:2  │ │ Min:2/Max:20  │    │
+│  │  Static       │ │  Static       │ │  Time-based   │ │ Autoscaling   │    │
+│  │               │ │               │ │               │ │               │    │
+│  │  (no taint)   │ │ Taint: coderd │ │Taint: prov    │ │Taint: workspace│   │
+│  └───────────────┘ └───────────────┘ └───────────────┘ └───────────────┘    │
 │                                                                                 │
 │  Namespaces:                                                                    │
 │  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐               │
@@ -295,9 +296,10 @@ flowchart TB
         CP["Control Plane (AWS Managed)<br/>Multi-AZ | Encrypted | OIDC"]
         
         subgraph Nodes["Node Groups"]
-            system["coder-system<br/>m7i.large<br/>2 (static)"]
-            prov["coder-prov<br/>c7i.2xlarge<br/>1-2 (time-based)"]
-            ws["coder-ws<br/>m7i.12xlarge<br/>2-20 (autoscaling)"]
+            sys["system<br/>t3.medium x3"]
+            coderd["coder-coderd<br/>m7i.large x2"]
+            prov["coder-provisioner<br/>c7i.2xlarge x1-2"]
+            ws["coder-workspace<br/>m7i.12xlarge x2-20"]
         end
         
         subgraph NS["Namespaces"]
@@ -316,11 +318,12 @@ flowchart TB
 
 ### Node Group Configuration
 
-| Node Group | Instance | Min | Max | Scaling |
-|------------|----------|-----|-----|---------|
-| coder-system | m7i.large (2 vCPU, 8 GB) | 2 | 2 | Static |
-| coder-prov | c7i.2xlarge (8 vCPU, 32 GB) | 1 | 2 | Time-based |
-| coder-ws | m7i.12xlarge (48 vCPU, 192 GB) | 2 | 20 | Cluster Autoscaler |
+| Node Group | Instance | Min | Max | Taint | Purpose |
+|------------|----------|-----|-----|-------|---------|
+| system | t3.medium (2 vCPU, 4 GB) | 3 | 3 | None | K8s system components |
+| coder-coderd | m7i.large (2 vCPU, 8 GB) | 2 | 2 | `coder/node-type=coderd:NoSchedule` | Coder control plane |
+| coder-provisioner | c7i.2xlarge (8 vCPU, 16 GB) | 1 | 2 | `coder/node-type=provisioner:NoSchedule` | External provisioners |
+| coder-workspace | m7i.12xlarge (48 vCPU, 192 GB) | 2 | 20 | `coder/node-type=workspace:NoSchedule` | Developer workspaces |
 
 ### Scaling Schedule
 
