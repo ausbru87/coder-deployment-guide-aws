@@ -275,7 +275,7 @@ flowchart TB
 │  │   coder-system      │ │    coder-prov       │ │     coder-ws        │      │
 │  │                     │ │                     │ │                     │      │
 │  │  m7i.large           │ │  c7i.2xlarge         │ │  m7i.12xlarge         │      │
-│  │  Min: 2 / Max: 2    │ │  Min: 0 / Max: 2    │ │  Min: 2 / Max: 20   │      │
+│  │  Min: 2 / Max: 2    │ │  Min: 1 / Max: 2    │ │  Min: 2 / Max: 20   │      │
 │  │  Scaling: Static    │ │  Scaling: Time-based│ │  Scaling: Time+CA   │      │
 │  │                     │ │  (business hours)   │ │  (business hours)   │      │
 │  │  Taint: system      │ │  Label: provisioner │ │  Label: workspace   │      │
@@ -296,7 +296,7 @@ flowchart TB
         
         subgraph Nodes["Node Groups"]
             system["coder-system<br/>m7i.large<br/>2 (static)"]
-            prov["coder-prov<br/>c7i.2xlarge<br/>0-2 (time-based)"]
+            prov["coder-prov<br/>c7i.2xlarge<br/>1-2 (time-based)"]
             ws["coder-ws<br/>m7i.12xlarge<br/>2-20 (autoscaling)"]
         end
         
@@ -319,7 +319,7 @@ flowchart TB
 | Node Group | Instance | Min | Max | Scaling |
 |------------|----------|-----|-----|---------|
 | coder-system | m7i.large (2 vCPU, 8 GB) | 2 | 2 | Static |
-| coder-prov | c7i.2xlarge (8 vCPU, 32 GB) | 0 | 2 | Time-based |
+| coder-prov | c7i.2xlarge (8 vCPU, 32 GB) | 1 | 2 | Time-based |
 | coder-ws | m7i.12xlarge (48 vCPU, 192 GB) | 2 | 20 | Cluster Autoscaler |
 
 ### Scaling Schedule

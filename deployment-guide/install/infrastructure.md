@@ -408,8 +408,8 @@ eksctl create nodegroup \
   --region $AWS_REGION \
   --name coder-prov \
   --node-type c7i.2xlarge \
-  --nodes 2 \
-  --nodes-min 0 \
+  --nodes 1 \
+  --nodes-min 1 \
   --nodes-max 2 \
   --node-private-networking \
   --node-labels "coder/node-type=provisioner"
