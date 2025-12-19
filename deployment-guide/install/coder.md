@@ -10,103 +10,79 @@ This guide walks through installing Coder on your AWS EKS cluster using Helm.
 
 The installation process consists of:
 
-1. Installing the External Secrets Operator
-2. Creating a SecretStore and ExternalSecret
+1. Installing the Secrets Store CSI Driver
+2. Configuring the SecretProviderClass
 3. Deploying Coder via Helm
 4. Configuring DNS
 5. Verifying the installation
 
-## Install External Secrets Operator
+## Install Secrets Store CSI Driver
 
 > [!NOTE]
-> The `coder` and `external-secrets` namespaces were created in [infrastructure.md](infrastructure.md) during Pod Identity setup.
+> The `coder` namespace was created in [infrastructure.md](infrastructure.md) during Pod Identity setup.
 
-Install the External Secrets Operator to sync secrets from AWS Secrets Manager:
+Install the CSI driver and AWS Secrets and Configuration Provider (ASCP) to sync secrets from AWS Secrets Manager:
 
 ```bash
-helm repo add external-secrets https://charts.external-secrets.io
+# Install Secrets Store CSI Driver
+helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
 helm repo update
 
-helm install external-secrets external-secrets/external-secrets \
-  --namespace external-secrets \
-  --set serviceAccount.create=true \
-  --set serviceAccount.name=external-secrets
+helm install csi-secrets-store secrets-store-csi-driver/secrets-store-csi-driver \
+  --namespace kube-system \
+  --set syncSecret.enabled=true
+
+# Install AWS Provider (ASCP)
+kubectl apply -f https://raw.githubusercontent.com/aws/secrets-store-csi-driver-provider-aws/main/deployment/aws-provider-installer.yaml
 ```
 
 Verify:
 
 ```bash
-kubectl get pods -n external-secrets
-kubectl get crd | grep external-secrets
+kubectl get pods -n kube-system -l app=secrets-store-csi-driver
+kubectl get pods -n kube-system -l app=csi-secrets-store-provider-aws
 ```
 
-## Create SecretStore and ExternalSecret
+## Create SecretProviderClass
 
-Create a SecretStore to connect to AWS Secrets Manager via Pod Identity:
+Create the SecretProviderClass to sync secrets from AWS Secrets Manager using Pod Identity:
 
 ```bash
 source coder-infra.env
 
 cat <<EOF | kubectl apply -f -
-apiVersion: external-secrets.io/v1beta1
-kind: SecretStore
-metadata:
-  name: aws-secrets-manager
-  namespace: coder
-spec:
-  provider:
-    aws:
-      service: SecretsManager
-      region: ${AWS_REGION}
-      auth:
-        jwt:
-          serviceAccountRef:
-            name: external-secrets
-            namespace: external-secrets
-EOF
-```
-
-Create an ExternalSecret to sync Coder secrets:
-
-```bash
-cat <<EOF | kubectl apply -f -
-apiVersion: external-secrets.io/v1beta1
-kind: ExternalSecret
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
 metadata:
   name: coder-secrets
   namespace: coder
 spec:
-  refreshInterval: 1h
-  secretStoreRef:
-    name: aws-secrets-manager
-    kind: SecretStore
-  target:
-    name: coder-secrets
-    creationPolicy: Owner
-  data:
-    - secretKey: db-url
-      remoteRef:
-        key: coder/database-url
-    - secretKey: github-client-id
-      remoteRef:
-        key: coder/github-client-id
-    - secretKey: github-client-secret
-      remoteRef:
-        key: coder/github-client-secret
-    - secretKey: github-allowed-orgs
-      remoteRef:
-        key: coder/github-allowed-orgs
+  provider: aws
+  parameters:
+    region: ${AWS_REGION}
+    usePodIdentity: "true"
+    objects: |
+      - objectName: "coder/database-url"
+        objectType: "secretsmanager"
+      - objectName: "coder/github-client-id"
+        objectType: "secretsmanager"
+      - objectName: "coder/github-client-secret"
+        objectType: "secretsmanager"
+      - objectName: "coder/github-allowed-orgs"
+        objectType: "secretsmanager"
+  secretObjects:
+  - secretName: coder-secrets
+    type: Opaque
+    data:
+    - objectName: "coder/database-url"
+      key: db-url
+    - objectName: "coder/github-client-id"
+      key: github-client-id
+    - objectName: "coder/github-client-secret"
+      key: github-client-secret
+    - objectName: "coder/github-allowed-orgs"
+      key: github-allowed-orgs
 EOF
-```
-
-Verify secrets are synced:
-
-```bash
-# Check ExternalSecret status (should show "SecretSynced")
-kubectl get externalsecret -n coder
-
-# Verify the K8s secret was created
-kubectl get secret coder-secrets -n coder
 ```
 
 ## Install Coder with Helm
@@ -224,6 +200,19 @@ coder:
       service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "${CERT_ARN}"
       service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
       service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"
+  
+  # -- Secrets Store CSI volume for credentials
+  volumes:
+    - name: secrets-store
+      csi:
+        driver: secrets-store.csi.k8s.io
+        readOnly: true
+        volumeAttributes:
+          secretProviderClass: coder-secrets
+  volumeMounts:
+    - name: secrets-store
+      mountPath: "/mnt/secrets"
+      readOnly: true
   
   # -- Pod anti-affinity for HA (requires replicas on separate nodes)
   # Using 'required' because coderd uses round-robin load balancing;
@@ -505,15 +494,15 @@ aws secretsmanager create-secret \
   --region $AWS_REGION
 ```
 
-### 3. Update ExternalSecret
+### 3. Verify Secrets Sync
 
-The ExternalSecret created earlier already includes placeholders for GitHub secrets. After creating the secrets in AWS Secrets Manager above, the External Secrets Operator will automatically sync them to Kubernetes.
-
-Verify the secrets are synced:
+The SecretProviderClass created earlier already includes the GitHub secrets. After creating the secrets in AWS Secrets Manager above, restart the Coder pods to pick up the new secrets:
 
 ```bash
-kubectl get externalsecret -n coder
-kubectl get secret coder-secrets -n coder -o yaml
+kubectl rollout restart deployment/coder -n coder
+
+# Verify the secrets are available
+kubectl get secret coder-secrets -n coder
 ```
 
 ### 4. Add Environment Variables to values.yaml
