@@ -103,8 +103,8 @@ coder:
     repo: "ghcr.io/coder/coder"
     pullPolicy: IfNotPresent
   
-  # -- Number of replicas (1 for MVP, increase for HA - Enterprise feature)
-  replicaCount: 1
+  # -- Number of coderd replicas for HA (requires Enterprise license)
+  replicaCount: 2
   
   # -- Schedule coderd on coder-system nodes (tainted)
   nodeSelector:
@@ -177,19 +177,19 @@ coder:
       mountPath: "/mnt/secrets"
       readOnly: true
   
-  # -- Pod anti-affinity for HA (spreads replicas across nodes)
+  # -- Pod anti-affinity for HA (requires replicas on separate nodes)
+  # Using 'required' because coderd uses round-robin load balancing;
+  # a downed pod disrupts users relaying through it.
   affinity:
     podAntiAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - podAffinityTerm:
-            labelSelector:
-              matchExpressions:
-                - key: app.kubernetes.io/instance
-                  operator: In
-                  values:
-                    - coder
-            topologyKey: kubernetes.io/hostname
-          weight: 1
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/instance
+                operator: In
+                values:
+                  - coder
+          topologyKey: kubernetes.io/hostname
 EOF
 
 cat values.yaml
@@ -201,6 +201,23 @@ Install Coder:
 helm install coder coder-v2/coder \
   --namespace coder \
   --values values.yaml
+```
+
+Create a PodDisruptionBudget to prevent eviction storms during node drains/upgrades:
+
+```bash
+cat <<EOF | kubectl apply -f -
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: coder-pdb
+  namespace: coder
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: coder
+EOF
 ```
 
 ## Configure DNS
