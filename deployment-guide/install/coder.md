@@ -328,6 +328,129 @@ Expected output:
 
 Open `https://<your-coder-domain>` in a browser to create the first admin user.
 
+## Deploy External Provisioners
+
+This deployment uses external provisioners running on dedicated `coder-provisioner` nodes. The coderd pods have `CODER_PROVISIONER_DAEMONS=0` to disable built-in provisioners.
+
+### 1. Create Provisioner Key
+
+After coderd is running, create a provisioner key:
+
+```bash
+coder provisioner keys create eks-provisioner --tag scope=organization
+
+# Save the output key for the next step
+```
+
+### 2. Create Kubernetes Secret
+
+```bash
+kubectl create secret generic coder-provisioner-key \
+  --namespace coder \
+  --from-literal=key="<provisioner-key-from-step-1>"
+```
+
+### 3. Create Provisioner Values File
+
+```bash
+source coder-infra.env
+
+cat <<EOF > provisioner-values.yaml
+coder:
+  serviceAccount:
+    workspacePerms: true
+    enableDeployments: true
+    name: coder-provisioner
+
+  image:
+    repo: "ghcr.io/coder/coder"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 2
+
+  nodeSelector:
+    coder/node-type: provisioner
+  tolerations:
+    - key: "coder/node-type"
+      operator: "Equal"
+      value: "provisioner"
+      effect: "NoSchedule"
+
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "2Gi"
+    limits:
+      cpu: "4000m"
+      memory: "8Gi"
+
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    seccompProfile:
+      type: RuntimeDefault
+
+  env:
+    - name: CODER_URL
+      value: "https://${CODER_DOMAIN}"
+    - name: CODER_PROVISIONER_DAEMONS
+      value: "10"
+    - name: CODER_VERBOSE
+      value: "false"
+    - name: CODER_PROMETHEUS_ENABLE
+      value: "true"
+
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/instance
+                  operator: In
+                  values:
+                    - coder-provisioner
+            topologyKey: kubernetes.io/hostname
+          weight: 1
+
+provisionerDaemon:
+  keySecretName: "coder-provisioner-key"
+  keySecretKey: "key"
+  terminationGracePeriodSeconds: 600
+EOF
+
+cat provisioner-values.yaml
+```
+
+### 4. Install Provisioner Chart
+
+```bash
+helm install coder-provisioner coder-v2/coder-provisioner \
+  --namespace coder \
+  --values provisioner-values.yaml
+```
+
+### 5. Verify Provisioners
+
+```bash
+kubectl get pods -n coder -l app.kubernetes.io/name=coder-provisioner
+
+# Check provisioner logs
+kubectl logs -n coder -l app.kubernetes.io/name=coder-provisioner --tail=50
+```
+
+### Capacity Planning
+
+| Setting | Value | Result |
+|---------|-------|--------|
+| `replicaCount` | 2 pods | |
+| `CODER_PROVISIONER_DAEMONS` | 10 per pod | |
+| **Total** | | **20 concurrent builds** |
+
+For 500 workspaces, 20 concurrent builds handles typical morning startup surges. Adjust `replicaCount` or `CODER_PROVISIONER_DAEMONS` if you see build queuing.
+
 ## Configure Authentication (GitHub OAuth)
 
 > [!NOTE]
