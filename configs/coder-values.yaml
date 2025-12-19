@@ -1,0 +1,123 @@
+coder:
+  # -- Service account configuration
+  serviceAccount:
+    create: true
+    name: coder
+    workspacePerms: true
+    enableDeployments: true
+  
+  # -- Image configuration
+  image:
+    repo: "ghcr.io/coder/coder"
+    pullPolicy: IfNotPresent
+  
+  # -- Number of coderd replicas for HA (requires Enterprise license)
+  replicaCount: 2
+  
+  # -- Schedule coderd on coder-system nodes (tainted)
+  nodeSelector:
+    coder/node-type: coderd
+  tolerations:
+    - key: "coder/node-type"
+      operator: "Equal"
+      value: "coderd"
+      effect: "NoSchedule"
+  
+  # -- Resource requests/limits for coderd
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "2Gi"
+    limits:
+      cpu: "2000m"
+      memory: "4Gi"
+  
+  # -- Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    seccompProfile:
+      type: RuntimeDefault
+  
+  # -- Environment variables
+  env:
+    # Database
+    - name: CODER_PG_CONNECTION_URL
+      valueFrom:
+        secretKeyRef:
+          name: coder-secrets
+          key: db-url
+    # Access URLs
+    - name: CODER_ACCESS_URL
+      value: "https://dev1.ab-aws.demo.coder.com"
+    - name: CODER_WILDCARD_ACCESS_URL
+      value: "https://*.dev1.ab-aws.demo.coder.com"
+    # Observability
+    - name: CODER_PROMETHEUS_ENABLE
+      value: "true"
+    # Logging
+    - name: CODER_VERBOSE
+      value: "false"
+    # Disable built-in provisioners (external only)
+    - name: CODER_PROVISIONER_DAEMONS
+      value: "0"
+    # GitHub OAuth - see "Configure Authentication" section below
+    - name: CODER_OAUTH2_GITHUB_ALLOW_SIGNUPS
+      value: "true"
+    - name: CODER_OAUTH2_GITHUB_ALLOWED_ORGS
+      valueFrom:
+        secretKeyRef:
+          name: coder-secrets
+          key: github-allowed-orgs
+    - name: CODER_OAUTH2_GITHUB_CLIENT_ID
+      valueFrom:
+        secretKeyRef:
+          name: coder-secrets
+          key: github-client-id
+    - name: CODER_OAUTH2_GITHUB_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: coder-secrets
+          key: github-client-secret
+  
+  # -- Service configuration
+  service:
+    enable: true
+    type: LoadBalancer
+    sessionAffinity: None
+    externalTrafficPolicy: Cluster
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+      service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+      service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "arn:aws:acm:us-west-2:816024705881:certificate/a6c93e34-9db1-45ad-a926-d17fa2903f5f"
+      service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "tcp"
+  
+  # -- Secrets Store CSI volume for credentials
+  volumes:
+    - name: secrets-store
+      csi:
+        driver: secrets-store.csi.k8s.io
+        readOnly: true
+        volumeAttributes:
+          secretProviderClass: coder-secrets
+  volumeMounts:
+    - name: secrets-store
+      mountPath: "/mnt/secrets"
+      readOnly: true
+  
+  # -- Pod anti-affinity for HA (requires replicas on separate nodes)
+  # Using 'required' because coderd uses round-robin load balancing;
+  # a downed pod disrupts users relaying through it.
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/instance
+                operator: In
+                values:
+                  - coder
+          topologyKey: kubernetes.io/hostname

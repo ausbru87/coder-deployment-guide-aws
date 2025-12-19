@@ -39,7 +39,7 @@ This document provides architectural diagrams for the Coder platform deployment 
 │  │   │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ │ │ │
 │  │   │  │   system    │ │coder-coderd │ │coder-prov   │ │ coder-ws    │ │ │ │
 │  │   │  │ (k8s system)│ │  (coderd)   │ │(provisioner)│ │ (workspace) │ │ │ │
-│  │   │  │t3.medium x3 │ │m7i.large x2 │ │c7i.2xl x1-2 │ │m7i.12xl x20 │ │ │ │
+│  │   │  │t3.medium x3 │ │m7i.xlarge x2 │ │c7i.2xl x1-2 │ │m7i.12xl x20 │ │ │ │
 │  │   │  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘ │ │ │
 │  │   │                                                                      │ │ │
 │  │   └─────────────────────────────────────────────────────────────────────┘ │ │
@@ -70,7 +70,7 @@ flowchart TB
             
             subgraph EKS["EKS Cluster"]
                 sys["system<br/>t3.medium x3"]
-                coderd["coder-coderd<br/>m7i.large x2"]
+                coderd["coder-coderd<br/>m7i.xlarge x2"]
                 prov["coder-provisioner<br/>c7i.2xlarge x1-2"]
                 ws["coder-workspace<br/>m7i.12xlarge x2-20"]
             end
@@ -297,7 +297,7 @@ flowchart TB
         
         subgraph Nodes["Node Groups"]
             sys["system<br/>t3.medium x3"]
-            coderd["coder-coderd<br/>m7i.large x2"]
+            coderd["coder-coderd<br/>m7i.xlarge x2"]
             prov["coder-provisioner<br/>c7i.2xlarge x1-2"]
             ws["coder-workspace<br/>m7i.12xlarge x2-20"]
         end
@@ -321,7 +321,7 @@ flowchart TB
 | Node Group | Instance | Min | Max | Taint | Purpose |
 |------------|----------|-----|-----|-------|---------|
 | system | t3.medium (2 vCPU, 4 GB) | 3 | 3 | None | K8s system components |
-| coder-coderd | m7i.large (2 vCPU, 8 GB) | 2 | 2 | `coder/node-type=coderd:NoSchedule` | Coder control plane |
+| coder-coderd | m7i.xlarge (4 vCPU, 16 GB) | 2 | 2 | `coder/node-type=coderd:NoSchedule` | Coder control plane |
 | coder-provisioner | c7i.2xlarge (8 vCPU, 16 GB) | 1 | 2 | `coder/node-type=provisioner:NoSchedule` | External provisioners |
 | coder-workspace | m7i.12xlarge (48 vCPU, 192 GB) | 2 | 20 | `coder/node-type=workspace:NoSchedule` | Developer workspaces |
 

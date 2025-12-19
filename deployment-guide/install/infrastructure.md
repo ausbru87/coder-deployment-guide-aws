@@ -404,7 +404,7 @@ eksctl create nodegroup \
   --cluster $CLUSTER_NAME \
   --region $AWS_REGION \
   --name coder-coderd \
-  --node-type m7i.large \
+  --node-type m7i.xlarge \
   --nodes 2 \
   --nodes-min 2 \
   --nodes-max 2 \

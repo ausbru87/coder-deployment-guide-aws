@@ -134,11 +134,11 @@ coder:
   # -- Resource requests/limits for coderd
   resources:
     requests:
-      cpu: "1000m"
-      memory: "2Gi"
-    limits:
       cpu: "2000m"
       memory: "4Gi"
+    limits:
+      cpu: "4000m"
+      memory: "8Gi"
   
   # -- Security context
   securityContext:
