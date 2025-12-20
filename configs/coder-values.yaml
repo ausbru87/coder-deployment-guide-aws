@@ -32,19 +32,24 @@ coder:
     seccompProfile:
       type: RuntimeDefault
   
+  # -- Override command to construct connection string at runtime
+  command: ["/bin/sh"]
+  args:
+    - -c
+    - |
+      export CODER_PG_CONNECTION_URL="postgres://coder:$(cat /mnt/secrets/coder_database-password)@coder-db.cyqknovyll6e.us-west-2.rds.amazonaws.com:5432/coder?sslmode=require"
+      export CODER_OAUTH2_GITHUB_ALLOWED_ORGS="$(cat /mnt/secrets/coder_github-allowed-orgs)"
+      export CODER_OAUTH2_GITHUB_CLIENT_ID="$(cat /mnt/secrets/coder_github-client-id)"
+      export CODER_OAUTH2_GITHUB_CLIENT_SECRET="$(cat /mnt/secrets/coder_github-client-secret)"
+      exec /opt/coder server
+  
   # -- Environment variables
   env:
-    # Database
-    - name: CODER_PG_CONNECTION_URL
-      valueFrom:
-        secretKeyRef:
-          name: coder-secrets
-          key: db-url
     # Access URLs
     - name: CODER_ACCESS_URL
       value: "https://dev1.ab-aws.demo.coder.com"
     - name: CODER_WILDCARD_ACCESS_URL
-      value: "https://*.dev1.ab-aws.demo.coder.com"
+      value: "*.dev1.ab-aws.demo.coder.com"
     # Observability
     - name: CODER_PROMETHEUS_ENABLE
       value: "true"
@@ -54,24 +59,9 @@ coder:
     # Disable built-in provisioners (external only)
     - name: CODER_PROVISIONER_DAEMONS
       value: "0"
-    # GitHub OAuth - see "Configure Authentication" section below
+    # GitHub OAuth
     - name: CODER_OAUTH2_GITHUB_ALLOW_SIGNUPS
       value: "true"
-    - name: CODER_OAUTH2_GITHUB_ALLOWED_ORGS
-      valueFrom:
-        secretKeyRef:
-          name: coder-secrets
-          key: github-allowed-orgs
-    - name: CODER_OAUTH2_GITHUB_CLIENT_ID
-      valueFrom:
-        secretKeyRef:
-          name: coder-secrets
-          key: github-client-id
-    - name: CODER_OAUTH2_GITHUB_CLIENT_SECRET
-      valueFrom:
-        secretKeyRef:
-          name: coder-secrets
-          key: github-client-secret
   
   # -- Service configuration
   service:
